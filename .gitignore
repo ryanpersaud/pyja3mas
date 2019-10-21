@@ -132,3 +132,5 @@ tags
 *.tfstate*
 *.terraform/
 config/
+*.cert
+*.pem
