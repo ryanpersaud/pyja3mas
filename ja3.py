@@ -7,6 +7,7 @@ import json
 import socket
 import struct
 from hashlib import md5
+import sys
 
 GREASE_TABLE = {0x0a0a: True, 0x1a1a: True, 0x2a2a: True, 0x3a3a: True,
                 0x4a4a: True, 0x5a5a: True, 0x6a6a: True, 0x7a7a: True,
@@ -16,6 +17,8 @@ GREASE_TABLE = {0x0a0a: True, 0x1a1a: True, 0x2a2a: True, 0x3a3a: True,
 SSL_PORT = 443
 TLS_HANDSHAKE = 22
 
+
+LOOPBACK = False
 
 def convert_ip(value):
     """Convert an IP address from binary to text.
@@ -136,7 +139,11 @@ def process_pcap(pcap, any_port=False):
     results = list()
     for timestamp, buf in pcap:
         try:
-            eth = dpkt.ethernet.Ethernet(buf)
+            if LOOPBACK:
+                # header is different for loopback traffic for local testing
+                eth = dpkt.loopback.Loopback(buf)
+            else:
+                eth = dpkt.ethernet.Ethernet(buf)
         except Exception:
             continue
 
@@ -157,6 +164,7 @@ def process_pcap(pcap, any_port=False):
             continue
 
         tls_handshake = bytearray(tcp.data)
+
         if tls_handshake[0] != TLS_HANDSHAKE:
             continue
 
@@ -224,7 +232,12 @@ def main():
     help_text = "Print out as JSON records for downstream parsing"
     parser.add_argument("-j", "--json", required=False, action="store_true",
                         default=True, help=help_text)
+    parser.add_argument("--loopback", action="store_true",
+                        default=False, help="loopback capture") 
     args = parser.parse_args()
+
+    global LOOPBACK
+    LOOPBACK = args.loopback
 
     # Use an iterator to process each line of the file
     output = None
