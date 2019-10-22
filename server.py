@@ -5,7 +5,7 @@ import re
 import logging
 import logging.config
 
-import socket
+import Sniffer
 import log_conf
 
 HOST = "localhost"
@@ -15,6 +15,7 @@ KEYFILE = "key.pem"
 CERTFILE = "cert.pem"
 
 _LOGGER = None
+_SHARED_JA3 = None
 
 class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     curl_re = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
@@ -70,11 +71,14 @@ def init_logger():
     global _LOGGER
     
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
-    _LOGGER = logging.getLogger("debug")
+    _LOGGER = logging.getLogger("info")
 
 
 def main():
     init_logger()
+
+    global _SHARED_JA3
+    _SHARED_JA3 = {}
 
     server_addr = (HOST, PORT)
     httpd = http.server.HTTPServer(server_addr, SimpleHTTPRequestHandler)
@@ -85,8 +89,17 @@ def main():
             ssl_version=ssl.PROTOCOL_TLSv1_2)
     
 
-    _LOGGER.info("Launching HTTPS Server")
-    httpd.serve_forever()
+    sniffer = Sniffer.Sniffer(_LOGGER, shared_ja3=_SHARED_JA3)
+    sniffer.start()
+
+    try:
+        _LOGGER.info("Launching HTTPS Server")
+        httpd.serve_forever()
+    except KeyboardInterrupt as _:
+        _LOGGER.info("Tearing Down Server and Sniffer")
+        sniffer.join(0.2)
+
+    _LOGGER.info(sniffer.get_ja3_dict())
 
 
 if __name__ == '__main__':

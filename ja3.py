@@ -128,115 +128,121 @@ def process_extensions(client_handshake):
     return results
 
 
-# def process_pcap(pcap, any_port=False):
-def process_ssl(pkt, any_port=True):
-    """Process packets within the PCAP.
+def ssl_closure(share_dict, logger):
+    # def process_pcap(pcap, any_port=False):
+    def process_ssl(pkt, any_port=True):
+        """Process packets within the PCAP.
 
-    :param pcap: Opened PCAP file to be processed
-    :type pcap: dpkt.pcap.Reader
-    :param any_port: Whether or not to search for non-SSL ports
-    :type any_port: bool
-    """
-    results = list()
-    # for timestamp, buf in pcap:
-    buf = bytes(pkt)
-    try:
-        # if LOOPBACK:
-            # header is different for loopback traffic for local testing
-        eth = dpkt.loopback.Loopback(buf)
-        # else:
-        #     eth = dpkt.ethernet.Ethernet(buf)
-    except Exception:
-        print("HERE")
-        return
-        # continue
-
-    # print(eth.data)
-    if not isinstance(eth.data, dpkt.ip.IP):
-        # We want an IP packet
-        return
-        # continue
-    if not isinstance(eth.data.data, dpkt.tcp.TCP):
-        # TCP only
-        return
-        # continue
-
-    ip = eth.data
-    tcp = ip.data
-
-    if not (tcp.dport == SSL_PORT or tcp.sport == SSL_PORT or any_port):
-        # Doesn't match SSL port or we are picky
-        return
-        # continue
-    if len(tcp.data) <= 0:
-        return
-        # continue
-
-    tls_handshake = bytearray(tcp.data)
-
-    if tls_handshake[0] != TLS_HANDSHAKE:
-        return
-        # continue
-
-    records = list()
-
-    try:
-        records, bytes_used = dpkt.ssl.tls_multi_factory(tcp.data)
-    except dpkt.ssl.SSL3Exception:
-        return
-        # continue
-    except dpkt.dpkt.NeedData:
-        return
-        # continue
-
-    if len(records) <= 0:
-        return
-        # continue
-
-    for record in records:
-        if record.type != TLS_HANDSHAKE:
-            return
-            # continue
-        if len(record.data) == 0:
-            return
-            # continue
-        client_hello = bytearray(record.data)
-        if client_hello[0] != 1:
-            # We only want client HELLO
-            return
-            # continue
+        :param pcap: Opened PCAP file to be processed
+        :type pcap: dpkt.pcap.Reader
+        :param any_port: Whether or not to search for non-SSL ports
+        :type any_port: bool
+        """
+        results = list()
+        # for timestamp, buf in pcap:
+        buf = bytes(pkt)
         try:
-            handshake = dpkt.ssl.TLSHandshake(record.data)
+            # if LOOPBACK:
+                # header is different for loopback traffic for local testing
+            eth = dpkt.loopback.Loopback(buf)
+            # else:
+            #     eth = dpkt.ethernet.Ethernet(buf)
+        except Exception:
+            print("HERE")
+            return
+            # continue
+
+        # print(eth.data)
+        if not isinstance(eth.data, dpkt.ip.IP):
+            # We want an IP packet
+            return
+            # continue
+        if not isinstance(eth.data.data, dpkt.tcp.TCP):
+            # TCP only
+            return
+            # continue
+
+        ip = eth.data
+        tcp = ip.data
+
+        if not (tcp.dport == SSL_PORT or tcp.sport == SSL_PORT or any_port):
+            # Doesn't match SSL port or we are picky
+            return
+            # continue
+        if len(tcp.data) <= 0:
+            return
+            # continue
+
+        tls_handshake = bytearray(tcp.data)
+
+        if tls_handshake[0] != TLS_HANDSHAKE:
+            return
+            # continue
+
+        records = list()
+
+        try:
+            records, bytes_used = dpkt.ssl.tls_multi_factory(tcp.data)
+        except dpkt.ssl.SSL3Exception:
+            return
+            # continue
         except dpkt.dpkt.NeedData:
-            # Looking for a handshake here
-            return
-            # continue
-        if not isinstance(handshake.data, dpkt.ssl.TLSClientHello):
-            # Still not the HELLO
             return
             # continue
 
-        client_handshake = handshake.data
-        buf, ptr = parse_variable_array(client_handshake.data, 1)
-        buf, ptr = parse_variable_array(client_handshake.data[ptr:], 2)
-        ja3 = [str(client_handshake.version)]
+        if len(records) <= 0:
+            return
+            # continue
 
-        # Cipher Suites (16 bit values)
-        ja3.append(convert_to_ja3_segment(buf, 2))
-        ja3 += process_extensions(client_handshake)
-        ja3 = ",".join(ja3)
+        for record in records:
+            if record.type != TLS_HANDSHAKE:
+                return
+                # continue
+            if len(record.data) == 0:
+                return
+                # continue
+            client_hello = bytearray(record.data)
+            if client_hello[0] != 1:
+                # We only want client HELLO
+                return
+                # continue
+            try:
+                handshake = dpkt.ssl.TLSHandshake(record.data)
+            except dpkt.dpkt.NeedData:
+                # Looking for a handshake here
+                return
+                # continue
+            if not isinstance(handshake.data, dpkt.ssl.TLSClientHello):
+                # Still not the HELLO
+                return
+                # continue
 
-        record = {"source_ip": convert_ip(ip.src),
-                  "destination_ip": convert_ip(ip.dst),
-                  "source_port": tcp.sport,
-                  "destination_port": tcp.dport,
-                  "ja3": ja3,
-                  "ja3_digest": md5(ja3.encode()).hexdigest()}
-                  # "timestamp": timestamp}
-        results.append(record)
+            client_handshake = handshake.data
+            buf, ptr = parse_variable_array(client_handshake.data, 1)
+            buf, ptr = parse_variable_array(client_handshake.data[ptr:], 2)
+            ja3 = [str(client_handshake.version)]
 
-    # return results
-    print(results)
+            # Cipher Suites (16 bit values)
+            ja3.append(convert_to_ja3_segment(buf, 2))
+            ja3 += process_extensions(client_handshake)
+            ja3 = ",".join(ja3)
+
+            ja3_digest = md5(ja3.encode()).hexdigest()
+            record = {"source_ip": convert_ip(ip.src),
+                      "destination_ip": convert_ip(ip.dst),
+                      "source_port": tcp.sport,
+                      "destination_port": tcp.dport,
+                      "ja3": ja3,
+                      # "ja3_digest": md5(ja3.encode()).hexdigest()}
+                      "ja3_digest": ja3_digest}
+                      # "timestamp": timestamp}
+            # results.append(record)
+            share_dict[ja3_digest] = record
+            print(record)
+
+    # return the closured function 
+    return process_ssl
+
 
 
 def main():
