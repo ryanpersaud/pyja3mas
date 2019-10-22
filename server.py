@@ -49,7 +49,10 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b'hello world!')
+
+        ret_bytes = ("Browser: %s\n" \
+                "Version: %s" % (browser_info)).encode("utf-8")
+        self.wfile.write(ret_bytes)
 
 
     def log_message(self, format, *args):
