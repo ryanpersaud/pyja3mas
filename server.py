@@ -5,6 +5,7 @@ import re
 import logging
 import logging.config
 
+import socket
 import log_conf
 
 HOST = "localhost"
@@ -14,9 +15,6 @@ KEYFILE = "key.pem"
 CERTFILE = "cert.pem"
 
 _LOGGER = None
-
-# _CURL_RE = "(curl\/(\d\.?){3})"
-# (curl\/?(\d*\.?){0,3})
 
 class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     curl_re = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
@@ -85,6 +83,7 @@ def main():
     httpd.socket = ssl.wrap_socket(httpd.socket, server_side=True, \
             certfile=CERTFILE, keyfile=KEYFILE, \
             ssl_version=ssl.PROTOCOL_TLSv1_2)
+    
 
     _LOGGER.info("Launching HTTPS Server")
     httpd.serve_forever()
