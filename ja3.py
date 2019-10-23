@@ -14,7 +14,7 @@ GREASE_TABLE = {0x0a0a: True, 0x1a1a: True, 0x2a2a: True, 0x3a3a: True,
                 0x8a8a: True, 0x9a9a: True, 0xaaaa: True, 0xbaba: True,
                 0xcaca: True, 0xdada: True, 0xeaea: True, 0xfafa: True}
 # GREASE_TABLE Ref: https://tools.ietf.org/html/draft-davidben-tls-grease-00
-SSL_PORT = 443
+SSL_PORT = 4443
 TLS_HANDSHAKE = 22
 
 
@@ -130,7 +130,7 @@ def process_extensions(client_handshake):
 
 def ssl_closure(share_dict, logger):
     # def process_pcap(pcap, any_port=False):
-    def process_ssl(pkt, any_port=True):
+    def process_ssl(pkt, any_port=False):
         """Process packets within the PCAP.
 
         :param pcap: Opened PCAP file to be processed
@@ -148,7 +148,6 @@ def ssl_closure(share_dict, logger):
             # else:
             #     eth = dpkt.ethernet.Ethernet(buf)
         except Exception:
-            print("HERE")
             return
             # continue
 
@@ -163,9 +162,13 @@ def ssl_closure(share_dict, logger):
             # continue
 
         ip = eth.data
+
+        # TODO: create Session ID IP id + TCP sport
         tcp = ip.data
 
-        if not (tcp.dport == SSL_PORT or tcp.sport == SSL_PORT or any_port):
+        # if we're running this from the server side, we only need to look for dport SSL_PORT
+        # if not (tcp.dport == SSL_PORT or tcp.sport == SSL_PORT or any_port):
+        if not (tcp.dport == SSL_PORT):
             # Doesn't match SSL port or we are picky
             return
             # continue
@@ -228,17 +231,19 @@ def ssl_closure(share_dict, logger):
             ja3 = ",".join(ja3)
 
             ja3_digest = md5(ja3.encode()).hexdigest()
-            record = {"source_ip": convert_ip(ip.src),
+            src_ip = convert_ip(ip.src)
+            sport = tcp.sport
+            record = {"source_ip": src_ip,
                       "destination_ip": convert_ip(ip.dst),
-                      "source_port": tcp.sport,
+                      "source_port": sport,
                       "destination_port": tcp.dport,
                       "ja3": ja3,
                       # "ja3_digest": md5(ja3.encode()).hexdigest()}
                       "ja3_digest": ja3_digest}
                       # "timestamp": timestamp}
             # results.append(record)
-            share_dict[ja3_digest] = record
-            print(record)
+            share_dict[(src_ip, sport)] = record
+            # share_dict[ja3_digest] = record
 
     # return the closured function 
     return process_ssl

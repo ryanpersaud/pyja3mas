@@ -4,6 +4,7 @@ import httpagentparser
 import re
 import logging
 import logging.config
+import time
 
 import Sniffer
 import log_conf
@@ -21,6 +22,7 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     curl_re = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
 
     def do_GET(self):
+        _LOGGER.info(self.client_address)
         _LOGGER.debug("Got GET Req")
         ua = self.headers["User-Agent"]
 
@@ -49,8 +51,20 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
+        ja3 = None
+        time_wasted = 0
+        unique_key = self.client_address
+        while ja3 is None and time_wasted < 5:
+            time.sleep(0.5)
+            ja3 = _SHARED_JA3.get(unique_key, None)
+            time_wasted += 1
+
+        if ja3 is not None:
+            ja3 = ja3["ja3_digest"]
+
         ret_bytes = ("Browser: %s\n" \
-                "Version: %s" % (browser_info)).encode("utf-8")
+                "Version: %s\n" \
+                "JA3: %s" % (browser_info[0], browser_info[1], ja3)).encode("utf-8")
         self.wfile.write(ret_bytes)
 
 

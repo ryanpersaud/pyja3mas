@@ -14,7 +14,6 @@ class Sniffer(Thread):
         self.logger.debug("Created Sniffer Object")
 
         self._ja3 = shared_ja3
-
         self.daemon = True
 
     def run(self):
