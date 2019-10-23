@@ -4,6 +4,7 @@ import httpagentparser
 import re
 import logging
 import logging.config
+import pprint
 import time
 
 import Sniffer
@@ -17,13 +18,13 @@ CERTFILE = "cert.pem"
 
 _LOGGER = None
 _SHARED_JA3 = None
+_MASTER_JA3 = None
 
 class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     curl_re = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
 
     def do_GET(self):
-        _LOGGER.info(self.client_address)
-        _LOGGER.debug("Got GET Req")
+        _LOGGER.debug("Got GET Req from: %s", self.client_address)
         ua = self.headers["User-Agent"]
 
         found_curl = SimpleHTTPRequestHandler.check_for_curl(ua)
@@ -45,8 +46,8 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                 browser_version = parsed_ua["browser"].get("version", None)
 
         
-        browser_info = (browser_name, browser_version)
-        _LOGGER.info(browser_info)
+        browser_info = (browser_name, browser_version, ua)
+        _LOGGER.info("Digested Connection from: %s::%s", browser_name, browser_version)
 
         self.send_response(200)
         self.end_headers()
@@ -54,8 +55,11 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         ja3 = None
         time_wasted = 0
         unique_key = self.client_address
+
+        # designed to wait a couple seconds if there is a connection issue if
+        # the sniffer didn't add the ja3 data
         while ja3 is None and time_wasted < 5:
-            time.sleep(0.5)
+            time.sleep(0.3)
             ja3 = _SHARED_JA3.get(unique_key, None)
             time_wasted += 1
 
@@ -65,6 +69,14 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         ret_bytes = ("Browser: %s\n" \
                 "Version: %s\n" \
                 "JA3: %s" % (browser_info[0], browser_info[1], ja3)).encode("utf-8")
+
+        # adds any new data to a dictionary
+        if _MASTER_JA3.get(ja3, None) is None:
+            _MASTER_JA3[ja3] = []
+
+        if browser_info not in _MASTER_JA3[ja3]:
+            _MASTER_JA3[ja3].append(browser_info)
+
         self.wfile.write(ret_bytes)
 
 
@@ -88,11 +100,20 @@ def init_logger():
     _LOGGER = logging.getLogger("info")
 
 
+# def pretty_print_master():
+#     for ja3 in _MASTER_JA3:
+#         browsers = _MASTER_JA3[ja3]
+#         for brow in browsers:
+
+
+
 def main():
     init_logger()
 
     global _SHARED_JA3
+    global _MASTER_JA3
     _SHARED_JA3 = {}
+    _MASTER_JA3 = {}
 
     server_addr = (HOST, PORT)
     httpd = http.server.HTTPServer(server_addr, SimpleHTTPRequestHandler)
@@ -113,7 +134,8 @@ def main():
         _LOGGER.info("Tearing Down Server and Sniffer")
         sniffer.join(0.2)
 
-    _LOGGER.info(sniffer.get_ja3_dict())
+    pprint.pprint(_MASTER_JA3)
+    # _LOGGER.info(_MASTER_JA3)
 
 
 if __name__ == '__main__':

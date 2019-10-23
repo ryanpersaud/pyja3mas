@@ -145,42 +145,31 @@ def ssl_closure(share_dict, logger):
             # if LOOPBACK:
                 # header is different for loopback traffic for local testing
             eth = dpkt.loopback.Loopback(buf)
-            # else:
-            #     eth = dpkt.ethernet.Ethernet(buf)
         except Exception:
             return
-            # continue
 
-        # print(eth.data)
         if not isinstance(eth.data, dpkt.ip.IP):
             # We want an IP packet
             return
-            # continue
         if not isinstance(eth.data.data, dpkt.tcp.TCP):
             # TCP only
             return
-            # continue
 
         ip = eth.data
 
-        # TODO: create Session ID IP id + TCP sport
         tcp = ip.data
 
         # if we're running this from the server side, we only need to look for dport SSL_PORT
-        # if not (tcp.dport == SSL_PORT or tcp.sport == SSL_PORT or any_port):
         if not (tcp.dport == SSL_PORT):
             # Doesn't match SSL port or we are picky
             return
-            # continue
         if len(tcp.data) <= 0:
             return
-            # continue
 
         tls_handshake = bytearray(tcp.data)
 
         if tls_handshake[0] != TLS_HANDSHAKE:
             return
-            # continue
 
         records = list()
 
@@ -188,37 +177,29 @@ def ssl_closure(share_dict, logger):
             records, bytes_used = dpkt.ssl.tls_multi_factory(tcp.data)
         except dpkt.ssl.SSL3Exception:
             return
-            # continue
         except dpkt.dpkt.NeedData:
             return
-            # continue
 
         if len(records) <= 0:
             return
-            # continue
 
         for record in records:
             if record.type != TLS_HANDSHAKE:
                 return
-                # continue
             if len(record.data) == 0:
                 return
-                # continue
             client_hello = bytearray(record.data)
             if client_hello[0] != 1:
                 # We only want client HELLO
                 return
-                # continue
             try:
                 handshake = dpkt.ssl.TLSHandshake(record.data)
             except dpkt.dpkt.NeedData:
                 # Looking for a handshake here
                 return
-                # continue
             if not isinstance(handshake.data, dpkt.ssl.TLSClientHello):
                 # Still not the HELLO
                 return
-                # continue
 
             client_handshake = handshake.data
             buf, ptr = parse_variable_array(client_handshake.data, 1)
@@ -238,14 +219,10 @@ def ssl_closure(share_dict, logger):
                       "source_port": sport,
                       "destination_port": tcp.dport,
                       "ja3": ja3,
-                      # "ja3_digest": md5(ja3.encode()).hexdigest()}
                       "ja3_digest": ja3_digest}
-                      # "timestamp": timestamp}
-            # results.append(record)
-            share_dict[(src_ip, sport)] = record
-            # share_dict[ja3_digest] = record
 
-    # return the closured function 
+            share_dict[(src_ip, sport)] = record
+
     return process_ssl
 
 
