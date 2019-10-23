@@ -4,7 +4,9 @@ import httpagentparser
 import re
 import logging
 import logging.config
-import pprint
+from pprint import pformat
+import json
+import os
 import time
 
 import Sniffer
@@ -15,6 +17,8 @@ PORT = 4443
 
 KEYFILE = "key.pem"
 CERTFILE = "cert.pem"
+
+JA3_FILE = "ja3_data.json"
 
 _LOGGER = None
 _SHARED_JA3 = None
@@ -45,9 +49,8 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                 browser_name = parsed_ua["browser"].get("name", None)
                 browser_version = parsed_ua["browser"].get("version", None)
 
-        
+
         browser_info = (browser_name, browser_version, ua)
-        _LOGGER.info("Digested Connection from: %s::%s", browser_name, browser_version)
 
         self.send_response(200)
         self.end_headers()
@@ -69,6 +72,8 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         ret_bytes = ("Browser: %s\n" \
                 "Version: %s\n" \
                 "JA3: %s" % (browser_info[0], browser_info[1], ja3)).encode("utf-8")
+
+        _LOGGER.info("Digested Connection from: %s::%s::%s", browser_name, browser_version, ja3)
 
         # adds any new data to a dictionary
         if _MASTER_JA3.get(ja3, None) is None:
@@ -95,16 +100,52 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
 def init_logger():
     global _LOGGER
-    
+
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
     _LOGGER = logging.getLogger("info")
 
+def add_to_ds():
+    # default make it the master dict that will get overwritten if the data
+    # file exists
+    curr_ja3 = _MASTER_JA3
 
-# def pretty_print_master():
-#     for ja3 in _MASTER_JA3:
-#         browsers = _MASTER_JA3[ja3]
-#         for brow in browsers:
+    # file exists, so read it in and do stuffs
+    if os.path.exists(JA3_FILE):
+        _LOGGER.info("Reading in current JA3 data")
 
+        # test that the json file is set up correctly
+        try:
+            with open(JA3_FILE, "r") as ja_f:
+                curr_ja3 = json.loads(ja_f.read())
+
+            curr_ja3.get("testing", None)
+
+            for ja3 in _MASTER_JA3:
+                browsers = _MASTER_JA3[ja3]
+                for brow in browsers:
+                    # the ja3 is completely new
+                    if curr_ja3.get(ja3, None) is None:
+                        _LOGGER.info("New JA3 Detected")
+                        # create the ja3 entry and add current brow
+                        curr_ja3[ja3] = [brow]
+                    # the ja3 exists but the browser entry is not in the data store
+                    elif brow not in curr_ja3[ja3]:
+                        # add to the list of known browsers with the JA3 hash
+                        curr_ja3[ja3].append(brow)
+
+                    # do nothing because the JA3 exists and the current browser
+                    # already exists too
+        except (AttributeError, json.decoder.JSONDecodeError) as exc:
+            _LOGGER.error("Data Store JSON not configured correctly")
+            _LOGGER.error("Overriding misconfigured JSON data store with " \
+                    "current master JA3 list")
+
+
+    # rewrite the dictionary to the file
+    _LOGGER.info("Adding new JA3 fingerprints to the data store")
+    json_curr_ja3 = json.dumps(curr_ja3)
+    with open(JA3_FILE, "w") as ja_f:
+        ja_f.write(json_curr_ja3)
 
 
 def main():
@@ -122,7 +163,7 @@ def main():
     httpd.socket = ssl.wrap_socket(httpd.socket, server_side=True, \
             certfile=CERTFILE, keyfile=KEYFILE, \
             ssl_version=ssl.PROTOCOL_TLSv1_2)
-    
+
 
     sniffer = Sniffer.Sniffer(_LOGGER, shared_ja3=_SHARED_JA3)
     sniffer.start()
@@ -132,11 +173,13 @@ def main():
         httpd.serve_forever()
     except KeyboardInterrupt as _:
         _LOGGER.info("Tearing Down Server and Sniffer")
-        sniffer.join(0.2)
+        sniffer.join(0.1)
 
-    pprint.pprint(_MASTER_JA3)
-    # _LOGGER.info(_MASTER_JA3)
+    _LOGGER.info("Current JA3 Results...")
+    _LOGGER.info(pformat(_MASTER_JA3))
+
+    add_to_ds()
 
 
 if __name__ == '__main__':
-  main()
+    main()
