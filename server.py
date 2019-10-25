@@ -8,6 +8,8 @@ from pprint import pformat
 import json
 import os
 import time
+import sys
+import socket
 
 import Sniffer
 import log_conf
@@ -160,9 +162,14 @@ def main():
     httpd = http.server.HTTPServer(server_addr, SimpleHTTPRequestHandler)
 
     _LOGGER.debug("Wrapping HTTP socket in SSL wrapper")
-    httpd.socket = ssl.wrap_socket(httpd.socket, server_side=True, \
+    print(httpd.socket)
+    conn, addr = httpd.socket.accept()
+    print(conn.recv(1024, socket.MSG_PEEK))
+    httpd.socket = ssl.wrap_socket(conn, server_side=True, \
             certfile=CERTFILE, keyfile=KEYFILE, \
             ssl_version=ssl.PROTOCOL_TLSv1_2)
+
+    # print(httpd.socket.recv(2048, socket.MSG_PEEK))
 
 
     sniffer = Sniffer.Sniffer(_LOGGER, shared_ja3=_SHARED_JA3)
