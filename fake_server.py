@@ -75,13 +75,12 @@ def main():
             # don't want this printing out every time
             _LOGGER.debug(err)
 
-
         try:
-            _LOGGER.info(init_request)
+            _LOGGER.debug(init_request)
             if b"GET" in init_request:
                 ua_str = extract_ua_str(init_request)
 
-                found_curl = check_for_curl(ua_str)
+                found_curl = check_for_curl(ua_str.decode("utf-8"))
                 browser_name = None
                 browser_version = None
 
@@ -92,7 +91,6 @@ def main():
                     browser_version = curl_info[1]
 
                 else:
-
                     # need to decode utf-8 because the agent parser requires a str input
                     parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
                     # _LOGGER.info(parsed_ua)
@@ -102,7 +100,7 @@ def main():
                         browser_version = parsed_ua["browser"].get("version", None)
 
 
-                    browser_info = (ja3_digest, browser_name, browser_version, ua_str.decode("utf-8"))
+                browser_info = (ja3_digest, browser_name, browser_version, ua_str.decode("utf-8"))
                 _LOGGER.info(browser_info)
 
                 _LOGGER.info("Replying to GET Req: %s", addr)
@@ -117,10 +115,9 @@ def main():
             ssock.shutdown(socket.SHUT_RDWR)
             ssock.close()
 
-            _LOGGER.debug("Shutting down connection with: %s", addr)
+            _LOGGER.info("Shutting down connection with: %s", addr)
 
         except (OSError, NameError)  as err:
-            print("HERE")
             # this needs to be debug because these errors are always expected to happen
             # don't want this printing out every time
             _LOGGER.info(err)
@@ -128,7 +125,6 @@ def main():
         
 
         _LOGGER.debug(pformat(ja3_record))
-
 
 
 if __name__ == "__main__":
