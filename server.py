@@ -32,6 +32,7 @@ class SimpleHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         _LOGGER.debug("Got GET Req from: %s", self.client_address)
         ua = self.headers["User-Agent"]
+        print(ua)
 
         found_curl = SimpleHTTPRequestHandler.check_for_curl(ua)
         browser_name = None
@@ -162,12 +163,12 @@ def main():
     httpd = http.server.HTTPServer(server_addr, SimpleHTTPRequestHandler)
 
     _LOGGER.debug("Wrapping HTTP socket in SSL wrapper")
-    print(httpd.socket)
-    conn, addr = httpd.socket.accept()
-    print(conn.recv(1024, socket.MSG_PEEK))
-    httpd.socket = ssl.wrap_socket(conn, server_side=True, \
-            certfile=CERTFILE, keyfile=KEYFILE, \
-            ssl_version=ssl.PROTOCOL_TLSv1_2)
+    # print(httpd.socket)
+    # conn, addr = httpd.socket.accept()
+    # print(conn.recv(1024, socket.MSG_PEEK))
+    # httpd.socket = ssl.wrap_socket(conn, server_side=True, \
+    #         certfile=CERTFILE, keyfile=KEYFILE, \
+    #         ssl_version=ssl.PROTOCOL_TLSv1_2)
 
     # print(httpd.socket.recv(2048, socket.MSG_PEEK))
 
