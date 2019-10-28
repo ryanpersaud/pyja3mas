@@ -66,12 +66,32 @@ def main():
 
         try:
             if b"GET" in init_request:
+                ua_idx = init_request.find(b"User-Agent")
+                new_substr = init_request[ua_idx + len("User-Agent: "):]
+                end_ua_idx = new_substr.find(b"\r\n")
+                ua_str = new_substr[:end_ua_idx]
+
+                # need to decode utf-8 because the agent parser requires a str input
+                parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
+                # _LOGGER.info(parsed_ua)
+                browser_name = None
+                browser_version = None
+                browser = parsed_ua.get("browser", None)
+                if browser is not None:
+                    browser_name = parsed_ua["browser"].get("name", None)
+                    browser_version = parsed_ua["browser"].get("version", None)
+
+
+                browser_info = (ja3_digest, browser_name, browser_version, ua_str.decode("utf-8"))
+                _LOGGER.info(browser_info)
+
                 _LOGGER.info("Replying to GET Req: %s", addr)
                 ssock.send(b"HTTP/1.1 200 OK\n"
                         +b"Content-Type: text/html\n"
                         +b"\n"
-                        +b"<html><h1>%b</h1></html>" % (ja3_digest.encode("utf-8")))
-
+                        +b"<html><h1>%b</h1><h1>%b</h1><h1>%b</h1></html>" % \
+                        (ja3_digest.encode("utf-8"), browser_name.encode("utf-8"), \
+                            browser_version.encode("utf-8")))
 
 
             ssock.shutdown(socket.SHUT_RDWR)
@@ -88,23 +108,6 @@ def main():
 
         _LOGGER.debug(pformat(ja3_record))
 
-        ua_idx = init_request.find(b"User-Agent")
-        new_substr = init_request[ua_idx + len("User-Agent: "):]
-        end_ua_idx = new_substr.find(b"\r\n")
-        ua_str = new_substr[:end_ua_idx]
-
-        # need to decode utf-8 because the agent parser requires a str input
-        parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
-        _LOGGER.info(parsed_ua)
-        browser_name = None
-        browser_version = None
-        browser = parsed_ua.get("browser", None)
-        if browser is not None:
-            browser_name = parsed_ua["browser"].get("name", None)
-            browser_version = parsed_ua["browser"].get("version", None)
-
-        browser_info = (browser_name, browser_version, ua_str.decode("utf-8"))
-        _LOGGER.info(browser_info)
 
 
 if __name__ == "__main__":
