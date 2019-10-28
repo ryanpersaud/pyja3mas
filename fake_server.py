@@ -21,17 +21,29 @@ _LOGGER = None
 
 CURL_RE = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
 
-def check_for_curl(ua_str):
-    pass
+def check_for_curl(request):
+    match_obj = re.search(CURL_RE, request)
+    if match_obj is not None:
+        return match_obj.group()
+
+    return None
+
 
 def extract_ua_str(request):
-    pass
+    ua_idx = request.find(b"User-Agent")
+    new_substr = request[ua_idx + len("User-Agent: "):]
+    end_ua_idx = new_substr.find(b"\r\n")
+    ua_str = new_substr[:end_ua_idx]
+
+    return ua_str
+
 
 def init_logger():
     global _LOGGER
 
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
     _LOGGER = logging.getLogger("info")
+
 
 def main():
     init_logger()
@@ -65,24 +77,32 @@ def main():
 
 
         try:
+            _LOGGER.info(init_request)
             if b"GET" in init_request:
-                ua_idx = init_request.find(b"User-Agent")
-                new_substr = init_request[ua_idx + len("User-Agent: "):]
-                end_ua_idx = new_substr.find(b"\r\n")
-                ua_str = new_substr[:end_ua_idx]
+                ua_str = extract_ua_str(init_request)
 
-                # need to decode utf-8 because the agent parser requires a str input
-                parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
-                # _LOGGER.info(parsed_ua)
+                found_curl = check_for_curl(ua_str)
                 browser_name = None
                 browser_version = None
-                browser = parsed_ua.get("browser", None)
-                if browser is not None:
-                    browser_name = parsed_ua["browser"].get("name", None)
-                    browser_version = parsed_ua["browser"].get("version", None)
+
+                if found_curl is not None:
+                    _LOGGER.debug("Detected Curl")
+                    curl_info = found_curl.split("/")
+                    browser_name = "curl"
+                    browser_version = curl_info[1]
+
+                else:
+
+                    # need to decode utf-8 because the agent parser requires a str input
+                    parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
+                    # _LOGGER.info(parsed_ua)
+                    browser = parsed_ua.get("browser", None)
+                    if browser is not None:
+                        browser_name = parsed_ua["browser"].get("name", None)
+                        browser_version = parsed_ua["browser"].get("version", None)
 
 
-                browser_info = (ja3_digest, browser_name, browser_version, ua_str.decode("utf-8"))
+                    browser_info = (ja3_digest, browser_name, browser_version, ua_str.decode("utf-8"))
                 _LOGGER.info(browser_info)
 
                 _LOGGER.info("Replying to GET Req: %s", addr)
@@ -100,9 +120,10 @@ def main():
             _LOGGER.debug("Shutting down connection with: %s", addr)
 
         except (OSError, NameError)  as err:
+            print("HERE")
             # this needs to be debug because these errors are always expected to happen
             # don't want this printing out every time
-            _LOGGER.debug(err)
+            _LOGGER.info(err)
             continue
         
 
