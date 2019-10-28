@@ -128,103 +128,106 @@ def process_extensions(client_handshake):
     return results
 
 
-def ssl_closure(share_dict, logger):
-    # def process_pcap(pcap, any_port=False):
-    def process_ssl(pkt, any_port=False):
-        """Process packets within the PCAP.
+def process_ssl(pkt, any_port=False):
+    """Process packets within the PCAP.
 
-        :param pcap: Opened PCAP file to be processed
-        :type pcap: dpkt.pcap.Reader
-        :param any_port: Whether or not to search for non-SSL ports
-        :type any_port: bool
-        """
-        results = list()
-        # for timestamp, buf in pcap:
-        buf = bytes(pkt)
+    :param pcap: Opened PCAP file to be processed
+    :type pcap: dpkt.pcap.Reader
+    :param any_port: Whether or not to search for non-SSL ports
+    :type any_port: bool
+    """
+    # results = list()
+    # # for timestamp, buf in pcap:
+    # buf = bytes(pkt)
+    # try:
+    #     # if LOOPBACK:
+    #         # header is different for loopback traffic for local testing
+    #     eth = dpkt.loopback.Loopback(buf)
+    # except Exception:
+    #     return
+
+    # if not isinstance(eth.data, dpkt.ip.IP):
+    #     print("PEANUTE BUTTER")
+    #     # We want an IP packet
+    #     return
+    # if not isinstance(eth.data.data, dpkt.tcp.TCP):
+    #     # TCP only
+    #     return
+
+    # ip = eth.data
+
+    # tcp = ip.data
+
+    # # if we're running this from the server side, we only need to look for dport SSL_PORT
+    # if not (tcp.dport == SSL_PORT):
+    #     # Doesn't match SSL port or we are picky
+    #     return
+    # if len(tcp.data) <= 0:
+    #     return
+
+    # tls_handshake = bytearray(tcp.data)
+    tls_handshake = pkt
+
+    if tls_handshake[0] != TLS_HANDSHAKE:
+        return
+
+    records = list()
+
+    try:
+        # records, bytes_used = dpkt.ssl.tls_multi_factory(tcp.data)
+        records, bytes_used = dpkt.ssl.tls_multi_factory(tls_handshake)
+    except dpkt.ssl.SSL3Exception:
+        return
+    except dpkt.dpkt.NeedData:
+        return
+
+    if len(records) <= 0:
+        return
+
+    for record in records:
+        if record.type != TLS_HANDSHAKE:
+            return
+        if len(record.data) == 0:
+            return
+        client_hello = bytearray(record.data)
+        if client_hello[0] != 1:
+            # We only want client HELLO
+            return
         try:
-            # if LOOPBACK:
-                # header is different for loopback traffic for local testing
-            eth = dpkt.loopback.Loopback(buf)
-        except Exception:
-            return
-
-        if not isinstance(eth.data, dpkt.ip.IP):
-            # We want an IP packet
-            return
-        if not isinstance(eth.data.data, dpkt.tcp.TCP):
-            # TCP only
-            return
-
-        ip = eth.data
-
-        tcp = ip.data
-
-        # if we're running this from the server side, we only need to look for dport SSL_PORT
-        if not (tcp.dport == SSL_PORT):
-            # Doesn't match SSL port or we are picky
-            return
-        if len(tcp.data) <= 0:
-            return
-
-        tls_handshake = bytearray(tcp.data)
-
-        if tls_handshake[0] != TLS_HANDSHAKE:
-            return
-
-        records = list()
-
-        try:
-            records, bytes_used = dpkt.ssl.tls_multi_factory(tcp.data)
-        except dpkt.ssl.SSL3Exception:
-            return
+            handshake = dpkt.ssl.TLSHandshake(record.data)
         except dpkt.dpkt.NeedData:
+            # Looking for a handshake here
+            return
+        if not isinstance(handshake.data, dpkt.ssl.TLSClientHello):
+            # Still not the HELLO
             return
 
-        if len(records) <= 0:
-            return
+        client_handshake = handshake.data
+        buf, ptr = parse_variable_array(client_handshake.data, 1)
+        buf, ptr = parse_variable_array(client_handshake.data[ptr:], 2)
+        ja3 = [str(client_handshake.version)]
 
-        for record in records:
-            if record.type != TLS_HANDSHAKE:
-                return
-            if len(record.data) == 0:
-                return
-            client_hello = bytearray(record.data)
-            if client_hello[0] != 1:
-                # We only want client HELLO
-                return
-            try:
-                handshake = dpkt.ssl.TLSHandshake(record.data)
-            except dpkt.dpkt.NeedData:
-                # Looking for a handshake here
-                return
-            if not isinstance(handshake.data, dpkt.ssl.TLSClientHello):
-                # Still not the HELLO
-                return
+        # Cipher Suites (16 bit values)
+        ja3.append(convert_to_ja3_segment(buf, 2))
+        ja3 += process_extensions(client_handshake)
+        ja3 = ",".join(ja3)
 
-            client_handshake = handshake.data
-            buf, ptr = parse_variable_array(client_handshake.data, 1)
-            buf, ptr = parse_variable_array(client_handshake.data[ptr:], 2)
-            ja3 = [str(client_handshake.version)]
+        ja3_digest = md5(ja3.encode()).hexdigest()
+        # src_ip = convert_ip(ip.src)
+        src_ip = None
+        # sport = tcp.sport
+        sport = None
+        record = {
+                # {"source_ip": src_ip,
+                  # "destination_ip": convert_ip(ip.dst),
+                  # "source_port": sport,
+                  # "destination_port": tcp.dport,
+                  "ja3": ja3,
+                  "ja3_digest": ja3_digest}
 
-            # Cipher Suites (16 bit values)
-            ja3.append(convert_to_ja3_segment(buf, 2))
-            ja3 += process_extensions(client_handshake)
-            ja3 = ",".join(ja3)
-
-            ja3_digest = md5(ja3.encode()).hexdigest()
-            src_ip = convert_ip(ip.src)
-            sport = tcp.sport
-            record = {"source_ip": src_ip,
-                      "destination_ip": convert_ip(ip.dst),
-                      "source_port": sport,
-                      "destination_port": tcp.dport,
-                      "ja3": ja3,
-                      "ja3_digest": ja3_digest}
-
-            share_dict[(src_ip, sport)] = record
-
-    return process_ssl
-
+        # share_dict[(src_ip, sport)] = record
+        # print(record)
+        return record
 
 
 def main():
