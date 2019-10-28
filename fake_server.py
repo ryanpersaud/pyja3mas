@@ -1,9 +1,8 @@
 # from scapy.all import *
-import httpagentparser
 import logging
 import logging.config
 from pprint import pformat
-import os
+# import os
 import re
 import socket
 import ssl
@@ -11,6 +10,7 @@ import sys
 import select
 
 import queue
+import httpagentparser
 
 import log_conf
 import ja3
@@ -28,6 +28,7 @@ CURL_RE = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
 JA3_FILE = "ja3_data.json"
 
 _MASTER_JA3 = None
+EXIT_SUCC = 0
 
 def check_for_curl(request):
     match_obj = re.search(CURL_RE, request)
@@ -38,6 +39,8 @@ def check_for_curl(request):
 
 
 def extract_ua_str(request):
+    _LOGGER.debug("Attempting to Extract User-Agent String")
+
     ua_idx = request.find(b"User-Agent")
     new_substr = request[ua_idx + len("User-Agent: "):]
     end_ua_idx = new_substr.find(b"\r\n")
@@ -52,18 +55,17 @@ def init_logger():
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
     _LOGGER = logging.getLogger("info")
 
-def grab_data_store():
-    global _MASTER_JA3
-    if os.path.exists(JA3_FILE):
-        _LOGGER.info("Reading in current JA3 Data")
+# def grab_data_store():
+#     global _MASTER_JA3
+#     if os.path.exists(JA3_FILE):
+#         _LOGGER.info("Reading in current JA3 Data")
 
-        try:
-            with open(JA3_FILE, "r") as ja_f:
-                curr_ja3 = json.loads(ja_f.read())
+#         try:
+#             with open(JA3_FILE, "r") as ja_f:
+#                 curr_ja3 = json.loads(ja_f.read())
 
-            # currdd
-        except Exception as err:
-            pass
+#         except Exception as err:
+#             pass
 
 
 def main():
@@ -88,7 +90,7 @@ def main():
     poller = select.poll()
     poller.register(sock)
 
-    fd_to_socket = { sock.fileno(): sock,}
+    fd_to_socket = {sock.fileno(): sock,}
     sock_to_ja3 = {}
 
     _LOGGER.debug("Launching Server")
@@ -123,7 +125,7 @@ def main():
                         poller.register(ssock, READ_ONLY)
                         message_queues[ssock] = queue.Queue()
 
-                        (ip, port) = addr
+                        # (ip, port) = addr
                         _LOGGER.info("New TLS Connection Established: %s", addr)
                         _LOGGER.info("JA3: %s", ja3_digest)
 
@@ -153,9 +155,9 @@ def main():
                                     browser_version = curl_info[1]
 
                                 else:
-                                    # need to decode utf-8 because the agent parser requires a str input
+                                    # need to decode utf-8 because the agent
+                                    # parser requires a str input
                                     parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
-                                    # _LOGGER.info(parsed_ua)
                                     browser = parsed_ua.get("browser", None)
                                     if browser is not None:
                                         browser_name = parsed_ua["browser"].get("name", None)
@@ -163,7 +165,9 @@ def main():
 
                                 # grab the ja3 associated with the socket
                                 ja3_digest = sock_to_ja3[s]
-                                browser_info = (ja3_digest, browser_name, browser_version, ua_str.decode("utf-8"))
+                                browser_info = (ja3_digest, browser_name, \
+                                        browser_version, \
+                                        ua_str.decode("utf-8"))
                                 _LOGGER.info(browser_info)
 
 
@@ -178,7 +182,8 @@ def main():
                                 poller.modify(s, READ_WRITE)
 
                         except (OSError, NameError)  as err:
-                            # this needs to be debug because these errors are always expected to happen
+                            # this needs to be debug because these errors are
+                            # always expected to happen
                             # don't want this printing out every time
                             _LOGGER.info(err)
                             continue
@@ -190,7 +195,6 @@ def main():
 
                         del message_queues[s]
                         del sock_to_ja3[s]
-                        
 
                     _LOGGER.debug(pformat(ja3_record))
 
@@ -233,3 +237,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    sys.exit(EXIT_SUCC)
