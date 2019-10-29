@@ -8,6 +8,7 @@ import socket
 import ssl
 import sys
 import select
+import time
 
 import queue
 import httpagentparser
@@ -131,24 +132,33 @@ def main():
                         # peek and get the client HELLO for the TLS handshake
                         client_hello = conn.recv(2048, socket.MSG_PEEK)
                         ja3_record = ja3.process_ssl(client_hello)
-                        ja3_digest = ja3_record.get("ja3_digest", None)
+                        # handles if the client_hello is not TLS handshake or just plain HTTP
+                        if ja3_record is not None:
+                            ja3_digest = ja3_record.get("ja3_digest", None)
 
                         # complete the TLS handshake
-                        ssock = ssl.wrap_socket(conn, certfile=CERTFILE, \
-                                keyfile=KEYFILE, server_side=True, \
-                                ssl_version=ssl.PROTOCOL_TLSv1_2)
+                            ssock = ssl.wrap_socket(conn, certfile=CERTFILE, \
+                                    keyfile=KEYFILE, server_side=True, \
+                                    ssl_version=ssl.PROTOCOL_TLSv1_2)
 
-                        # add the socket for later use
-                        fd_to_socket[ssock.fileno()] = ssock
-                        # add the ja3 digest to the socket
-                        sock_to_ja3[ssock] = ja3_digest
+                            # add the socket for later use
+                            fd_to_socket[ssock.fileno()] = ssock
+                            # add the ja3 digest to the socket
+                            sock_to_ja3[ssock] = ja3_digest
 
-                        poller.register(ssock, READ_ONLY)
-                        message_queues[ssock] = queue.Queue()
+                            poller.register(ssock, READ_ONLY)
+                            message_queues[ssock] = queue.Queue()
 
-                        # (ip, port) = addr
-                        _LOGGER.info("New TLS Connection Established: %s", addr)
-                        _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
+                            # (ip, port) = addr
+                            _LOGGER.info("New TLS Connection Established: %s", addr)
+                            _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
+
+                        else:
+                            _LOGGER.info("Closing connection...Invalid HTTPS "
+                                    "connection from: %s", addr)
+                            conn.shutdown(socket.SHUT_RDWR)
+                            time.sleep(1)
+                            conn.close()
 
                     except ssl.SSLError as err:
                         _LOGGER.debug(err)
@@ -212,6 +222,7 @@ def main():
                     else:
                         poller.unregister(s)
                         s.shutdown(socket.SHUT_RDWR)
+                        time.sleep(1)
                         s.close()
 
                         del message_queues[s]
@@ -224,6 +235,7 @@ def main():
                 # close everything
                 poller.unregister(s)
                 s.shutdown(socket.SHUT_RDWR)
+                time.sleep(1)
                 s.close()
 
             # we have output to send to the client
@@ -240,6 +252,7 @@ def main():
                     poller.unregister(s)
                     # close it because we got what we needed
                     s.shutdown(socket.SHUT_RDWR)
+                    time.sleep(1)
                     s.close()
 
                     del message_queues[s]
@@ -250,6 +263,7 @@ def main():
                 # close everything
                 poller.unregister(s)
                 s.shutdown(socket.SHUT_RDWR)
+                time.sleep(1)
                 s.close()
 
                 del message_queues[s]
