@@ -1,4 +1,5 @@
 import boto3
+from botocore.exceptions import ClientError
 
 # EXAMPLE [[]]
 # [list(("Firefox", "1.2.3", "UA_STR"))]
@@ -8,8 +9,22 @@ class DynamoDBAccess:
         self.table_name = table_name
         self.prim_key_name = prim_key_name
         self.region_name = region_name
+
         dynamo_instance = boto3.resource("dynamodb", region_name=self.region_name)
         self.dynamo_table = dynamo_instance.Table(self.table_name)
+
+        # checks the table exists
+        self.check_table_exists()
+
+
+    def check_table_exists(self):
+        """throws an exception if the table doesn't exist"""
+        try:
+            self.dynamo_table.table_status
+        except ClientError as err:
+            if err.response["Error"]["Code"] == "ResourceNotFoundException":
+                raise TableDoesNotExistException("Table '%s' does not exist" % (self.table_name))
+
 
     def add_to_table(self, prim_key, value_name, value_to_add):
         """Adds the value to the table if it does not already exist for the
@@ -74,8 +89,12 @@ class DynamoDBAccess:
                         }
                     )
 
+class TableDoesNotExistException(Exception):
+    def __init__(self, message):
+        self.message = message
 
 # dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+
 # table = dynamodb.Table("JA3Fingerprints")
 # response = table.get_item(
 #         Key={

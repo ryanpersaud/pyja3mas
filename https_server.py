@@ -15,11 +15,17 @@ import httpagentparser
 
 import log_conf
 import ja3
+import dynamodb_access as ddb
+
+_DYNAMO_ACCESS = None
+DB_TABLE_NAME = "JA3Fingerprints"
+DB_PRIM_KEY_NAME = "ja3"
+VALUE_NAME = "browserinfo"
 
 CERTFILE = "./cert.pem"
 KEYFILE = "./key.pem"
 
-HOST = "localhost"
+HOST = "10.110.2.21"
 PORT = 4443
 
 _LOGGER = None
@@ -31,6 +37,7 @@ JA3_FILE = "ja3_data.json"
 _MASTER_JA3 = None
 EXIT_SUCC = 0
 PARAM_ERROR = 1
+CONFIG_ERROR = 2
 
 
 def check_for_curl(request):
@@ -70,18 +77,17 @@ def init_logger(debug_on):
     _LOGGER.info("Logger created")
     _LOGGER.debug("Debug On")
 
+def init_dynamo_access():
+    global _DYNAMO_ACCESS
 
-# def grab_data_store():
-#     global _MASTER_JA3
-#     if os.path.exists(JA3_FILE):
-#         _LOGGER.info("Reading in current JA3 Data")
+    try:
+        _DYNAMO_ACCESS = ddb.DynamoDBAccess(DB_TABLE_NAME, DB_PRIM_KEY_NAME)
+    except ddb.TableDoesNotExistException as err:
+        _LOGGER.critical(err)
+        _LOGGER.critical("Cannot connect to Dynamo Database...Exiting")
+        sys.exit(CONFIG_ERROR)
 
-#         try:
-#             with open(JA3_FILE, "r") as ja_f:
-#                 curr_ja3 = json.loads(ja_f.read())
-
-#         except Exception as err:
-#             pass
+    _LOGGER.info("Connected to Dynamo DB")
 
 
 def main():
@@ -90,6 +96,8 @@ def main():
     args = parser.parse_args()
 
     init_logger(args.debug)
+
+    init_dynamo_access()
 
     # grab_data_store()
 
@@ -196,11 +204,19 @@ def main():
 
                                 # grab the ja3 associated with the socket
                                 ja3_digest = sock_to_ja3[s]
-                                browser_info = (ja3_digest, browser_name, \
+                                browser_info = [ja3_digest, browser_name, \
                                         browser_version, \
-                                        ua_str.decode("utf-8"))
+                                        ua_str.decode("utf-8")]
                                 _LOGGER.info(browser_info)
 
+                                # adds to the dynamo db instance
+                                _LOGGER.info("Writing Browser info to Database")
+                                # browser info is everything but the JA3 hash
+                                # above that is logged
+                                browser_db_info = browser_info[1:]
+
+                                _DYNAMO_ACCESS.add_to_table(ja3_digest, \
+                                        VALUE_NAME, browser_db_info)
 
                                 reply = b"HTTP/1.1 200 OK\n" \
                                         +b"Content-Type: text/html\n" \
