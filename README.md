@@ -3,9 +3,9 @@
 ### Background Information
 
 When a client connects to a server via HTTPS, it utilizes SSL/TLS to create the
-secured connection.  Each client can complete the TLS handshake in various
-ways, and the JA3 fingerprinting algorithm is meant to uniquely identify
-certain clients.
+secure connection.  Each client can complete the TLS handshake in various ways,
+and the JA3 fingerprinting algorithm is meant to uniquely identify certain
+clients.
 
 
 JA3 was created and developed at Salesforce. More background information about
@@ -14,7 +14,7 @@ JA3 can be found
 "JA3/JA3S Information").
 
 ### How the HTTPS Server Works
-`https_server.py` contains a barebones Python concurrent https server that
+`https_server.py` contains a barebones Python concurrent HTTPS server that
 maintains the minimum connection time to digest the JA3 fingerprint from the
 browser client.
 
@@ -23,3 +23,9 @@ to the server, it looks for the main GET request after the TLS handshake takes
 place.  After this, the web server returns the JA3 fingerprint, as well as the
 browser client/version that it parses from the User-Agent string along with the
 GET request.
+
+When the server gets a new client or JA3, it adds it to a DynamoDB instance on
+AWS.  This database is a master list of known JA3 hashes.
+
+### Future Development
+

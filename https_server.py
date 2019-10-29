@@ -1,4 +1,4 @@
-# from scapy.all import *
+import argparse
 import logging
 import logging.config
 from pprint import pformat
@@ -29,6 +29,8 @@ JA3_FILE = "ja3_data.json"
 
 _MASTER_JA3 = None
 EXIT_SUCC = 0
+PARAM_ERROR = 1
+
 
 def check_for_curl(request):
     match_obj = re.search(CURL_RE, request)
@@ -49,11 +51,24 @@ def extract_ua_str(request):
     return ua_str
 
 
-def init_logger():
+def setup_arguments(parser):
+    parser.add_argument("--debug", help="Turn on debug logging",
+            action="store_true")
+
+
+
+def init_logger(debug_on):
     global _LOGGER
 
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
-    _LOGGER = logging.getLogger("info")
+
+    if debug_on:
+        _LOGGER = logging.getLogger("debug")
+    else:
+        _LOGGER = logging.getLogger("info")
+    _LOGGER.info("Logger created")
+    _LOGGER.debug("Debug On")
+
 
 # def grab_data_store():
 #     global _MASTER_JA3
@@ -69,7 +84,12 @@ def init_logger():
 
 
 def main():
-    init_logger()
+    parser = argparse.ArgumentParser()
+    setup_arguments(parser)
+    args = parser.parse_args()
+
+    init_logger(args.debug)
+
     # grab_data_store()
 
     READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
@@ -93,7 +113,7 @@ def main():
     fd_to_socket = {sock.fileno(): sock,}
     sock_to_ja3 = {}
 
-    _LOGGER.debug("Launching Server")
+    _LOGGER.info("Launching Server")
 
     while True:
         events = poller.poll(TIMEOUT)
@@ -105,6 +125,7 @@ def main():
                 # server socket gets a new connection
                 if s is sock:
                     conn, addr = sock.accept()
+                    _LOGGER.debug("New TCP Connection Created: %s", addr)
 
                     try:
                         # peek and get the client HELLO for the TLS handshake
@@ -127,7 +148,7 @@ def main():
 
                         # (ip, port) = addr
                         _LOGGER.info("New TLS Connection Established: %s", addr)
-                        _LOGGER.info("JA3: %s", ja3_digest)
+                        _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
 
                     except ssl.SSLError as err:
                         _LOGGER.debug(err)
@@ -185,7 +206,7 @@ def main():
                             # this needs to be debug because these errors are
                             # always expected to happen
                             # don't want this printing out every time
-                            _LOGGER.info(err)
+                            _LOGGER.debug(err)
                             continue
 
                     else:
