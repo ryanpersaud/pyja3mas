@@ -2,7 +2,6 @@ import argparse
 import logging
 import logging.config
 from pprint import pformat
-# import os
 import re
 import socket
 import ssl
@@ -31,8 +30,6 @@ PORT = 4443
 _LOGGER = None
 
 CURL_RE = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
-
-JA3_FILE = "ja3_data.json"
 
 _MASTER_JA3 = None
 EXIT_SUCC = 0
@@ -64,7 +61,6 @@ def setup_arguments(parser):
                         action="store_true")
 
 
-
 def init_logger(debug_on):
     global _LOGGER
 
@@ -76,6 +72,7 @@ def init_logger(debug_on):
         _LOGGER = logging.getLogger("info")
     _LOGGER.info("Logger created")
     _LOGGER.debug("Debug On")
+
 
 def init_dynamo_access():
     global _DYNAMO_ACCESS
@@ -96,9 +93,7 @@ def main():
     args = parser.parse_args()
 
     init_logger(args.debug)
-
     init_dynamo_access()
-
 
     READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
     READ_WRITE = READ_ONLY | select.POLLOUT
@@ -108,7 +103,6 @@ def main():
     _LOGGER.debug("Initializing Socket")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    # sock.setblocking(0)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((HOST, PORT))
     sock.listen(5)
@@ -138,38 +132,43 @@ def main():
                     try:
                         # peek and get the client HELLO for the TLS handshake
                         client_hello = conn.recv(2048, socket.MSG_PEEK)
-                        ja3_record = ja3.process_ssl(client_hello)
-                        # handles if the client_hello is not TLS handshake or just plain HTTP
-                        if ja3_record is not None:
-                            ja3_digest = ja3_record.get("ja3_digest", None)
 
-                        # complete the TLS handshake
-                            ssock = ssl.wrap_socket(conn, certfile=CERTFILE, \
-                                    keyfile=KEYFILE, server_side=True, \
-                                    ssl_version=ssl.PROTOCOL_TLSv1_2)
+                        # we got data from it and it didn't hangup
+                        if client_hello:
+                            ja3_record = ja3.process_ssl(client_hello)
+                            # handles if the client_hello is not TLS handshake or just plain HTTP
+                            if ja3_record is not None:
+                                ja3_digest = ja3_record.get("ja3_digest", None)
 
-                            # add the socket for later use
-                            fd_to_socket[ssock.fileno()] = ssock
-                            # add the ja3 digest to the socket
-                            sock_to_ja3[ssock] = ja3_digest
+                            # complete the TLS handshake
+                                ssock = ssl.wrap_socket(conn, certfile=CERTFILE, \
+                                        keyfile=KEYFILE, server_side=True, \
+                                        ssl_version=ssl.PROTOCOL_TLSv1_2)
 
-                            poller.register(ssock, READ_ONLY)
-                            message_queues[ssock] = queue.Queue()
+                                # add the socket for later use
+                                fd_to_socket[ssock.fileno()] = ssock
+                                # add the ja3 digest to the socket
+                                sock_to_ja3[ssock] = ja3_digest
 
-                            # (ip, port) = addr
-                            _LOGGER.info("New TLS Connection Established: %s", addr)
-                            _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
+                                poller.register(ssock, READ_ONLY)
+                                message_queues[ssock] = queue.Queue()
 
+                                _LOGGER.info("New TLS Connection Established: %s", addr)
+                                _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
+
+                            else:
+                                _LOGGER.info("Closing connection...Invalid HTTPS "
+                                             "connection from: %s", addr)
+                                conn.shutdown(socket.SHUT_RDWR)
+                                time.sleep(1)
+                                conn.close()
                         else:
-                            _LOGGER.info("Closing connection...Invalid HTTPS "
-                                         "connection from: %s", addr)
-                            conn.shutdown(socket.SHUT_RDWR)
-                            time.sleep(1)
-                            conn.close()
+                            _LOGGER.info("Client %s Hung Up before initiating TLS Handshake", addr)
 
                     except ssl.SSLError as err:
                         _LOGGER.debug(err)
 
+                # not init connection to the server
                 else:
                     # hopefully get the GET request here for UA string processing
                     init_request = s.recv(2048)

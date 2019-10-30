@@ -136,36 +136,6 @@ def process_ssl(pkt, any_port=False):
     :param any_port: Whether or not to search for non-SSL ports
     :type any_port: bool
     """
-    # results = list()
-    # # for timestamp, buf in pcap:
-    # buf = bytes(pkt)
-    # try:
-    #     # if LOOPBACK:
-    #         # header is different for loopback traffic for local testing
-    #     eth = dpkt.loopback.Loopback(buf)
-    # except Exception:
-    #     return
-
-    # if not isinstance(eth.data, dpkt.ip.IP):
-    #     print("PEANUTE BUTTER")
-    #     # We want an IP packet
-    #     return
-    # if not isinstance(eth.data.data, dpkt.tcp.TCP):
-    #     # TCP only
-    #     return
-
-    # ip = eth.data
-
-    # tcp = ip.data
-
-    # # if we're running this from the server side, we only need to look for dport SSL_PORT
-    # if not (tcp.dport == SSL_PORT):
-    #     # Doesn't match SSL port or we are picky
-    #     return
-    # if len(tcp.data) <= 0:
-    #     return
-
-    # tls_handshake = bytearray(tcp.data)
     tls_handshake = pkt
 
     if tls_handshake[0] != TLS_HANDSHAKE:
@@ -218,15 +188,9 @@ def process_ssl(pkt, any_port=False):
         # sport = tcp.sport
         sport = None
         record = {
-                # {"source_ip": src_ip,
-                  # "destination_ip": convert_ip(ip.dst),
-                  # "source_port": sport,
-                  # "destination_port": tcp.dport,
                   "ja3": ja3,
                   "ja3_digest": ja3_digest}
 
-        # share_dict[(src_ip, sport)] = record
-        # print(record)
         return record
 
 
@@ -272,4 +236,4 @@ def main():
 
 
 if __name__ == "__main__":
-        main()
+    main()
