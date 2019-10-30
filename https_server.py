@@ -25,7 +25,7 @@ VALUE_NAME = "browserinfo"
 CERTFILE = "./cert.pem"
 KEYFILE = "./key.pem"
 
-HOST = "10.110.2.21"
+HOST = "localhost"
 PORT = 4443
 
 _LOGGER = None
@@ -61,7 +61,7 @@ def extract_ua_str(request):
 
 def setup_arguments(parser):
     parser.add_argument("--debug", help="Turn on debug logging",
-            action="store_true")
+                        action="store_true")
 
 
 
@@ -82,12 +82,12 @@ def init_dynamo_access():
 
     try:
         _DYNAMO_ACCESS = ddb.DynamoDBAccess(DB_TABLE_NAME, DB_PRIM_KEY_NAME)
-    except ddb.TableDoesNotExistException as err:
+    except (ddb.TableDoesNotExistException, ddb.PrimKeyException) as err:
         _LOGGER.critical(err)
         _LOGGER.critical("Cannot connect to Dynamo Database...Exiting")
         sys.exit(CONFIG_ERROR)
 
-    _LOGGER.info("Connected to Dynamo DB")
+    _LOGGER.info("Connected to Dynamo DB Table '%s'", DB_TABLE_NAME)
 
 
 def main():
@@ -99,7 +99,6 @@ def main():
 
     init_dynamo_access()
 
-    # grab_data_store()
 
     READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
     READ_WRITE = READ_ONLY | select.POLLOUT
@@ -122,7 +121,7 @@ def main():
     fd_to_socket = {sock.fileno(): sock,}
     sock_to_ja3 = {}
 
-    _LOGGER.info("Launching Server")
+    _LOGGER.info("Launching Server on https://%s:%d", HOST, PORT)
 
     while True:
         events = poller.poll(TIMEOUT)
@@ -163,7 +162,7 @@ def main():
 
                         else:
                             _LOGGER.info("Closing connection...Invalid HTTPS "
-                                    "connection from: %s", addr)
+                                         "connection from: %s", addr)
                             conn.shutdown(socket.SHUT_RDWR)
                             time.sleep(1)
                             conn.close()
