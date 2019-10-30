@@ -1,0 +1,7 @@
+---
+- hosts: ja3
+  tasks:
+      - include_role:
+          name: letsencrypt_certs
+        vars:
+            domain: ja3.appianis.com
