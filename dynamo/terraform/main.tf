@@ -21,3 +21,7 @@ resource "aws_dynamodb_table" "ja3-table" {
     enabled = true
   }
 }
+
+output "table-arn" {
+  value = aws_dynamodb_table.ja3-table.arn
+}

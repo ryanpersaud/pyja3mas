@@ -21,10 +21,10 @@ DB_TABLE_NAME = "JA3Fingerprints"
 DB_PRIM_KEY_NAME = "ja3"
 VALUE_NAME = "browserinfo"
 
-CERTFILE = "./cert.pem"
-KEYFILE = "./key.pem"
+CERTFILE = "./certs/fullchain.pem"
+KEYFILE = "./certs/privkey.pem"
 
-HOST = "localhost"
+HOST = ""
 PORT = 4443
 
 _LOGGER = None

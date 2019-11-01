@@ -39,7 +39,9 @@ resource "aws_instance" "ja3" {
   iam_instance_profile      = aws_iam_instance_profile.ja3.name
   user_data                 = <<-EOF
                               #!/bin/bash
-                              sudo apt-get update && sudo apt install python3
+                              sudo apt-get update && 
+                              sudo apt install python3
+
                               EOF
 
   tags = {
@@ -66,7 +68,7 @@ resource "aws_security_group" "ja3" {
 
 resource "aws_security_group_rule" "ja3_allow_ssh" {
   type              = "ingress"
-  from_port         = 22
+  from_port         = 22 
   to_port           = 22
   protocol          = "tcp"
   cidr_blocks       = [
@@ -100,26 +102,6 @@ resource "aws_security_group_rule" "ja3_allow_all_egress" {
   security_group_id = aws_security_group.ja3.id
 }
 
-
-
-# resource "aws_dynamodb_table" "ja3-table" {
-#   name = "JA3Fingerprints"
-#   billing_mode = "PROVISIONED"
-#   read_capacity = 5
-#   write_capacity = 5
-#   hash_key = "ja3"
-
-#   attribute {
-#     name = "ja3"
-#     type = "S"
-
-#   }
-
-#   tags = {
-#     Name = "JA3-Fingerprint-Table"
-#     Environment = "testing"
-#   }
-# }
 
 resource "aws_route53_record" "ja3" {
   zone_id = data.terraform_remote_state.vpc.outputs.route53_zone_id
@@ -168,6 +150,18 @@ data "aws_iam_policy_document" "ja3_policy_document" {
           # Hardcoded because the public zone (that we need access to)
           # is made automatically by route53
           "arn:aws:route53:::hostedzone/Z37BBG38HWJEU8"
+        ]
+    }
+
+    statement {
+        sid = "dynamoEC2"
+        actions = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ]
+        resources = [
+          "arn:aws:dynamodb:us-east-1:624427452316:table/JA3Fingerprints"
         ]
     }
 }
