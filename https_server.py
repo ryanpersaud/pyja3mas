@@ -1,3 +1,12 @@
+"""HTTPS server for collecting JA3 Fingerprints.
+
+This script stands up a simple working HTTPS server that users can connnect to
+and create a TLS connection.
+
+It currently requires valid certificates to become a reputable and trusted
+HTTPS server.
+"""
+
 import argparse
 import logging
 import logging.config
@@ -17,28 +26,64 @@ import ja3
 import dynamodb_access as ddb
 
 _DYNAMO_ACCESS = None
+"""DynamoDBAccess Obj: Global private module variable to store the connection
+object to the DynamoDB table in AWS """
+
 DB_TABLE_NAME = "JA3Fingerprints"
+"""str Obj: table name in AWS to connect to"""
 DB_PRIM_KEY_NAME = "ja3"
+"""str Obj: primary key to use for accessing and updating the DynamoDB table"""
 VALUE_NAME = "browserinfo"
+"""str Obj: value name of the KV pair in the DynamoDB table"""
 
 CERTFILE = "./certs/fullchain.pem"
+"""str Obj: file path to the certificate PEM file"""
 KEYFILE = "./certs/privkey.pem"
+"""str Obj: file path to the private key PEM file"""
 
 HOST = ""
+"""str Obj: hostname to bind to"""
 PORT = 4443
+"""int: port number where the https server will be accepting connections"""
 
 _LOGGER = None
+"""Logger Obj: Global private module variable to store the logger for the program"""
 
 CURL_RE = r"(curl\/(\d+\.)?(\d+\.)?(\d+))"
+"""str Obj: regex string specifically for extracting cURL data"""
+WGET_RE = r"([wW]get\/(\d+\.)?(\d+\.)?(\d+))"
+"""str Obj: regex string specifically for extracting wget data"""
+REQUESTS_RE = r"(python-requests\/(\d+\.)?(\d+\.)?(\d+))"
+"""str Obj: regex string specifically for extracting python-requests data"""
 
-_MASTER_JA3 = None
 EXIT_SUCC = 0
 PARAM_ERROR = 1
 CONFIG_ERROR = 2
+"""int: module variables for return codes"""
 
 
-def check_for_curl(request):
+# def check_for_curl(request):
+def check_for_headless_browsers(request):
+    """Given a UA string, determines if the request came from cURL
+    
+    Args:
+        request (:obj: `str`) UA string or full HTTP request to parse for cURL
+
+    Returns:
+        (:obj: `re`) regex object that is parseable if a match for cURL is
+            found, None otherwise
+    """
+
+    # performs the regex matching
+    # starts with curl
     match_obj = re.search(CURL_RE, request)
+    # if not curl, then tries wget
+    if match_obj is None:
+        match_obj = re.search(WGET_RE, request)
+    # if not wget, then tries requests module
+    if match_obj is None:
+        match_obj = re.search(REQUESTS_RE, request)
+
     if match_obj is not None:
         return match_obj.group()
 
@@ -184,15 +229,16 @@ def main():
                                 ua_str = extract_ua_str(init_request)
 
                                 # real quick check for curl browser
-                                found_curl = check_for_curl(ua_str.decode("utf-8"))
+                                # found_headless = check_for_curl(ua_str.decode("utf-8"))
+                                found_headless = check_for_headless_browsers(ua_str.decode("utf-8"))
                                 browser_name = None
                                 browser_version = None
 
-                                if found_curl is not None:
-                                    _LOGGER.debug("Detected Curl")
-                                    curl_info = found_curl.split("/")
-                                    browser_name = "curl"
-                                    browser_version = curl_info[1]
+                                if found_headless is not None:
+                                    _LOGGER.debug("Detected headless")
+                                    headless_info = found_headless.split("/")
+                                    browser_name = headless_info[0]
+                                    browser_version = headless_info[1]
 
                                 else:
                                     # need to decode utf-8 because the agent
@@ -219,12 +265,21 @@ def main():
                                 _DYNAMO_ACCESS.add_to_table(ja3_digest, \
                                         VALUE_NAME, browser_db_info)
 
+                                # real quick edge case if we can't parse the UA
+                                # string properly, it won't crash the server
+                                b_name = None
+                                b_version = None
+
+                                if browser_name is not None:
+                                    b_name = browser_name.encode("utf-8")
+                                if browser_version is not None:
+                                    b_version = browser_version.encode("utf-8")
+
                                 reply = b"HTTP/1.1 200 OK\n" \
                                         +b"Content-Type: text/html\n" \
                                         +b"\n" \
                                         +b"<html><h1>%b</h1><h1>%b</h1><h1>%b</h1></html>" % \
-                                        (ja3_digest.encode("utf-8"), browser_name.encode("utf-8"), \
-                                            browser_version.encode("utf-8"))
+                                        (ja3_digest.encode("utf-8"), b_name, b_version)
                                 # add the message reply to the queue
                                 message_queues[s].put(reply)
                                 poller.modify(s, READ_WRITE)
