@@ -231,8 +231,8 @@ def main():
                                 # real quick check for curl browser
                                 # found_headless = check_for_curl(ua_str.decode("utf-8"))
                                 found_headless = check_for_headless_browsers(ua_str.decode("utf-8"))
-                                browser_name = None
-                                browser_version = None
+                                browser_name = "Unknown"
+                                browser_version = "Unknown"
 
                                 if found_headless is not None:
                                     _LOGGER.debug("Detected headless")
@@ -267,8 +267,8 @@ def main():
 
                                 # real quick edge case if we can't parse the UA
                                 # string properly, it won't crash the server
-                                b_name = None
-                                b_version = None
+                                b_name = b""
+                                b_version = b""
 
                                 if browser_name is not None:
                                     b_name = browser_name.encode("utf-8")
