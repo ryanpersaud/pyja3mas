@@ -29,3 +29,22 @@ AWS.  This database is a master list of known JA3 hashes.
 
 ### Future Development
 
+
+### Running the Server
+On the EC2 instance, run
+```
+docker run -it -u root -p 443:4443 -v /etc/letsencrypt/live/ja3.appianis.com/:/home/appuser/certs/ -v /etc/letsencrypt/archive/ja3.appianis.com:/home/archive/ja3.appianis.com https
+```
+
+
+This will start up the docker container to listen for HTTPS connections on its
+internal port 4443, and the host will map its port 443 to forward to the
+container's port 4443.  You can test that the docker container is running
+successfully by going to `https://ja3.appianis.com` while on VPN or the wired
+VLAN.
+
+
+By visiting `https://ja3.appianis.com`, you should see a webpage with your
+browser's JA3 fingerprint, browser name, and browser version.  It extracts all
+of this data, except for the JA3 fingerprint from the User-Agen string  your
+browser sends with the initial GET request.
