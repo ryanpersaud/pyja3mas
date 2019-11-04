@@ -64,6 +64,9 @@ def setup_arguments(parser):
 def init_logger(debug_on):
     global _LOGGER
 
+    # prod-level stdout
+    log_conf.LOGGING_CONFIG["handlers"]["consoleHandler"]["formatter"] = "fileFormatter"
+
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
 
     if debug_on:
@@ -115,7 +118,7 @@ def main():
     fd_to_socket = {sock.fileno(): sock,}
     sock_to_ja3 = {}
 
-    _LOGGER.info("Launching Server on https://%s:%d", HOST, PORT)
+    _LOGGER.info("Launching Server on https://ja3.appianis.com:%d", PORT)
 
     while True:
         events = poller.poll(TIMEOUT)
