@@ -55,6 +55,10 @@ WGET_RE = r"([wW]get\/(\d+\.)?(\d+\.)?(\d+))"
 """str Obj: regex string specifically for extracting wget data"""
 REQUESTS_RE = r"(python-requests\/(\d+\.)?(\d+\.)?(\d+))"
 """str Obj: regex string specifically for extracting python-requests data"""
+POWERSHELL_RE = r"([pP]ower[sS]hell\/(\d+\.)?(\d+\.)?(\d+))"
+"""str Obj: regex string specifically for extracting PowerShell data"""
+GO_RE = r"([gG]o\D+\/(\d\.)?(\d\.)?(\d+))"
+"""str Obj: regex string specifically for extracting Go data"""
 
 EXIT_SUCC = 0
 PARAM_ERROR = 1
@@ -62,7 +66,6 @@ CONFIG_ERROR = 2
 """int: module variables for return codes"""
 
 
-# def check_for_curl(request):
 def check_for_headless_browsers(request):
     """Given a UA string, determines if the request came from cURL
     
@@ -83,6 +86,12 @@ def check_for_headless_browsers(request):
     # if not wget, then tries requests module
     if match_obj is None:
         match_obj = re.search(REQUESTS_RE, request)
+    # if not requests, then tries powershell
+    if match_obj is None:
+        match_obj = re.search(POWERSHELL_RE, request)
+    # if not powershell, then tries Go
+    if match_obj is None:
+        match_obj = re.search(GO_RE, request)
 
     if match_obj is not None:
         return match_obj.group()
@@ -92,13 +101,17 @@ def check_for_headless_browsers(request):
 
 def extract_ua_str(request):
     _LOGGER.debug("Attempting to Extract User-Agent String")
+    _LOGGER.info(request)
 
     ua_idx = request.find(b"User-Agent")
-    new_substr = request[ua_idx + len("User-Agent: "):]
-    end_ua_idx = new_substr.find(b"\r\n")
-    ua_str = new_substr[:end_ua_idx]
+    if ua_idx >= 0:
+        new_substr = request[ua_idx + len("User-Agent: "):]
+        end_ua_idx = new_substr.find(b"\r\n")
+        # returns the UA string if found
+        return new_substr[:end_ua_idx]
 
-    return ua_str
+    # returns empty if no UA string
+    return b"Unknown"
 
 
 def setup_arguments(parser):
@@ -227,27 +240,29 @@ def main():
                             # it's a GET request
                             if b"GET" in init_request:
                                 ua_str = extract_ua_str(init_request)
-
-                                # real quick check for curl browser
-                                # found_headless = check_for_curl(ua_str.decode("utf-8"))
-                                found_headless = check_for_headless_browsers(ua_str.decode("utf-8"))
                                 browser_name = "Unknown"
                                 browser_version = "Unknown"
 
-                                if found_headless is not None:
-                                    _LOGGER.debug("Detected headless")
-                                    headless_info = found_headless.split("/")
-                                    browser_name = headless_info[0]
-                                    browser_version = headless_info[1]
+                                # it could extract the UA section of the header
+                                if ua_str != b"Unknown":
+                                    # real quick check for curl browser
+                                    # found_headless = check_for_curl(ua_str.decode("utf-8"))
+                                    found_headless = check_for_headless_browsers(ua_str.decode("utf-8"))
 
-                                else:
-                                    # need to decode utf-8 because the agent
-                                    # parser requires a str input
-                                    parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
-                                    browser = parsed_ua.get("browser", None)
-                                    if browser is not None:
-                                        browser_name = parsed_ua["browser"].get("name", None)
-                                        browser_version = parsed_ua["browser"].get("version", None)
+                                    if found_headless is not None:
+                                        _LOGGER.debug("Detected headless")
+                                        headless_info = found_headless.split("/")
+                                        browser_name = headless_info[0]
+                                        browser_version = headless_info[1]
+
+                                    else:
+                                        # need to decode utf-8 because the agent
+                                        # parser requires a str input
+                                        parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
+                                        browser = parsed_ua.get("browser", None)
+                                        if browser is not None:
+                                            browser_name = parsed_ua["browser"].get("name", None)
+                                            browser_version = parsed_ua["browser"].get("version", None)
 
                                 # grab the ja3 associated with the socket
                                 ja3_digest = sock_to_ja3[s]
