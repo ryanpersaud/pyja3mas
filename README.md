@@ -46,5 +46,5 @@ VLAN.
 
 By visiting `https://ja3.appianis.com`, you should see a webpage with your
 browser's JA3 fingerprint, browser name, and browser version.  It extracts all
-of this data, except for the JA3 fingerprint from the User-Agen string  your
+of this data, except for the JA3 fingerprint, from the User-Agent string your
 browser sends with the initial GET request.
