@@ -11,6 +11,7 @@ import argparse
 import logging
 import logging.config
 from pprint import pformat
+import os
 import re
 import socket
 import ssl
@@ -59,6 +60,9 @@ POWERSHELL_RE = r"([pP]ower[sS]hell\/(\d+\.)?(\d+\.)?(\d+))"
 """str Obj: regex string specifically for extracting PowerShell data"""
 GO_RE = r"([gG]o\D+\/(\d\.)?(\d\.)?(\d+))"
 """str Obj: regex string specifically for extracting Go data"""
+
+LOG_FNAME = "server.log"
+LOG_DIR = "logs"
 
 EXIT_SUCC = 0
 PARAM_ERROR = 1
@@ -124,13 +128,17 @@ def init_logger(debug_on):
 
     # prod-level stdout
     log_conf.LOGGING_CONFIG["handlers"]["consoleHandler"]["formatter"] = "fileFormatter"
+    log_conf.LOGGING_CONFIG["handlers"]["fileHandler"]["filename"] = "%s/%s" % (LOG_DIR, LOG_FNAME)
+
+    if not os.path.isdir(LOG_DIR):
+        os.mkdir(LOG_DIR)
 
     logging.config.dictConfig(log_conf.LOGGING_CONFIG)
 
     if debug_on:
         _LOGGER = logging.getLogger("debug")
     else:
-        _LOGGER = logging.getLogger("info")
+        _LOGGER = logging.getLogger("user")
     _LOGGER.info("Logger created")
     _LOGGER.debug("Debug On")
 
