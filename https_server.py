@@ -72,7 +72,7 @@ CONFIG_ERROR = 2
 
 def check_for_headless_browsers(request):
     """Given a UA string, determines if the request came from cURL
-    
+
     Args:
         request (:obj: `str`) UA string or full HTTP request to parse for cURL
 
@@ -104,6 +104,18 @@ def check_for_headless_browsers(request):
 
 
 def extract_ua_str(request):
+    """Attempts to extract a User-Agent string from an HTTP GET request.
+
+    If the GET request contains a User-Agent string, it will extract just the
+    UA string.
+
+    Args:
+        request (:obj: `str`) full HTTP GET Request
+
+    Returns:
+        (:obj: `bytes`) the UA string, or 'Unknown' if it is not found
+    """
+
     _LOGGER.debug("Attempting to Extract User-Agent String")
     _LOGGER.info(request)
 
@@ -119,11 +131,33 @@ def extract_ua_str(request):
 
 
 def setup_arguments(parser):
+    """Sets up command line arguments
+
+    Args:
+        parser (:obj: `ArgParse`) parser object to add arguments to
+
+    Returns:
+        void
+    """
+
     parser.add_argument("--debug", help="Turn on debug logging",
                         action="store_true")
 
 
 def init_logger(debug_on):
+    """Initializes the private module variable logger
+
+    Adds the file formatter and logging file to the default logging
+    configuration.
+
+    Args:
+        debug_on (bool): boolean determining if debug mode is set via the
+            command line
+
+    Returns:
+        void
+    """
+
     global _LOGGER
 
     # prod-level stdout
@@ -144,11 +178,24 @@ def init_logger(debug_on):
 
 
 def init_dynamo_access():
+    """Initializes the DynamoDB private module variable to access the AWS
+    DynamoDB instance that will store the JA3 fingerprints.
+
+    Args:
+        void
+
+    Returns:
+        void
+    """
+
     global _DYNAMO_ACCESS
 
     try:
+        # create dyanmo object
         _DYNAMO_ACCESS = ddb.DynamoDBAccess(DB_TABLE_NAME, DB_PRIM_KEY_NAME)
     except (ddb.TableDoesNotExistException, ddb.PrimKeyException) as err:
+        # any exception means it could not successfully connect ot the dynamo
+        # table
         _LOGGER.critical(err)
         _LOGGER.critical("Cannot connect to Dynamo Database...Exiting")
         sys.exit(CONFIG_ERROR)
@@ -157,6 +204,15 @@ def init_dynamo_access():
 
 
 def main():
+    """Main method that runs and handles the HTTPs server concurrently
+
+    Args:
+        void
+
+    Returns:
+        void
+    """
+
     parser = argparse.ArgumentParser()
     setup_arguments(parser)
     args = parser.parse_args()
@@ -176,6 +232,7 @@ def main():
     sock.bind((HOST, PORT))
     sock.listen(5)
 
+    # queue for sending messages back to the clients
     message_queues = {}
 
     poller = select.poll()
@@ -209,7 +266,8 @@ def main():
                             if ja3_record is not None:
                                 ja3_digest = ja3_record.get("ja3_digest", None)
 
-                            # complete the TLS handshake
+                                # complete the TLS handshake by wrapping the
+                                # socket in the ssl module
                                 ssock = ssl.wrap_socket(conn, certfile=CERTFILE, \
                                         keyfile=KEYFILE, server_side=True, \
                                         ssl_version=ssl.PROTOCOL_TLSv1_2)
@@ -219,6 +277,8 @@ def main():
                                 # add the ja3 digest to the socket
                                 sock_to_ja3[ssock] = ja3_digest
 
+                                # it's a new client, so register the poller to
+                                # look out for it
                                 poller.register(ssock, READ_ONLY)
                                 message_queues[ssock] = queue.Queue()
 
@@ -229,6 +289,8 @@ def main():
                                 _LOGGER.info("Closing connection...Invalid HTTPS "
                                              "connection from: %s", addr)
                                 conn.shutdown(socket.SHUT_RDWR)
+                                # helps with some RST packets being sent and not
+                                # properly closing connections
                                 time.sleep(1)
                                 conn.close()
                         else:
@@ -242,6 +304,7 @@ def main():
                     # hopefully get the GET request here for UA string processing
                     init_request = s.recv(2048)
 
+                    # data exists from the previous read
                     if init_request:
                         try:
                             _LOGGER.debug(init_request)
@@ -253,12 +316,14 @@ def main():
 
                                 # it could extract the UA section of the header
                                 if ua_str != b"Unknown":
-                                    # real quick check for curl browser
-                                    # found_headless = check_for_curl(ua_str.decode("utf-8"))
-                                    found_headless = check_for_headless_browsers(ua_str.decode("utf-8"))
+                                    # real quick check for any headless browser(s)
+                                    found_headless = \
+                                        check_for_headless_browsers(ua_str.decode("utf-8"))
 
+                                    # it got a hit from a headless browser
                                     if found_headless is not None:
                                         _LOGGER.debug("Detected headless")
+                                        # splits and extracts name/version
                                         headless_info = found_headless.split("/")
                                         browser_name = headless_info[0]
                                         browser_version = headless_info[1]
@@ -268,9 +333,12 @@ def main():
                                         # parser requires a str input
                                         parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
                                         browser = parsed_ua.get("browser", None)
+                                        # the UA parser was able to
+                                        # successfully extract a browser
                                         if browser is not None:
                                             browser_name = parsed_ua["browser"].get("name", None)
-                                            browser_version = parsed_ua["browser"].get("version", None)
+                                            browser_version = \
+                                                parsed_ua["browser"].get("version", None)
 
                                 # grab the ja3 associated with the socket
                                 ja3_digest = sock_to_ja3[s]
@@ -285,6 +353,8 @@ def main():
                                 # above that is logged
                                 browser_db_info = browser_info[1:]
 
+                                # makes an external call to add the JA3 to the
+                                # table with the appropriate browser information
                                 _DYNAMO_ACCESS.add_to_table(ja3_digest, \
                                         VALUE_NAME, browser_db_info)
 
@@ -305,6 +375,7 @@ def main():
                                         (ja3_digest.encode("utf-8"), b_name, b_version)
                                 # add the message reply to the queue
                                 message_queues[s].put(reply)
+                                # tell the poller we ready to send it
                                 poller.modify(s, READ_WRITE)
 
                         except (OSError, NameError)  as err:
@@ -317,6 +388,7 @@ def main():
                     else:
                         poller.unregister(s)
                         s.shutdown(socket.SHUT_RDWR)
+                        # gracefully shutdown to eliminate RST packets
                         time.sleep(1)
                         s.close()
 
@@ -344,12 +416,16 @@ def main():
                 else:
                     # respond with the message
                     s.send(next_msg)
+                    # we do not keep any more connections after we use the client
+                    # for the JA3 fingerprint
                     poller.unregister(s)
                     # close it because we got what we needed
                     s.shutdown(socket.SHUT_RDWR)
                     time.sleep(1)
                     s.close()
 
+                    # get rid of all data associated with that socket since
+                    # we're done with it
                     del message_queues[s]
                     del sock_to_ja3[s]
 
@@ -361,6 +437,7 @@ def main():
                 time.sleep(1)
                 s.close()
 
+                # error, so get rid of socket data
                 del message_queues[s]
                 del sock_to_ja3[s]
 
