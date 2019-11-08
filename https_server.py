@@ -69,6 +69,9 @@ PARAM_ERROR = 1
 CONFIG_ERROR = 2
 """int: module variables for return codes"""
 
+READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
+READ_WRITE = READ_ONLY | select.POLLOUT
+TIMEOUT = 1000
 
 def check_for_headless_browsers(request):
     """Given a UA string, determines if the request came from cURL
@@ -203,6 +206,192 @@ def init_dynamo_access():
     _LOGGER.info("Connected to Dynamo DB Table '%s'", DB_TABLE_NAME)
 
 
+def handle_new_conn(sock, fd_to_socket, message_queues, sock_to_ja3, poller):
+    conn, addr = sock.accept()
+    conn.setblocking(0)
+    fd_to_socket[conn.fileno()] = conn
+    poller.register(conn, READ_ONLY)
+    _LOGGER.debug("New TCP Connection Created: %s", addr)
+
+
+def retrieve_http_req(s, message_queues, sock_to_ja3, poller):
+    # hopefully get the GET request here for UA string processing
+    try:
+        init_request = s.recv(2048)
+    except BlockingIOError as err:
+        _LOGGER.debug("Nothing to read")
+        return False
+
+    # data exists from the previous read
+    if init_request:
+        try:
+            _LOGGER.debug(init_request)
+            # it's a GET request
+            if b"GET" in init_request:
+                ua_str = extract_ua_str(init_request)
+                browser_name = "Unknown"
+                browser_version = "Unknown"
+
+                # it could extract the UA section of the header
+                if ua_str != b"Unknown":
+                    # real quick check for any headless browser(s)
+                    found_headless = \
+                        check_for_headless_browsers(ua_str.decode("utf-8"))
+
+                    # it got a hit from a headless browser
+                    if found_headless is not None:
+                        _LOGGER.debug("Detected headless")
+                        # splits and extracts name/version
+                        headless_info = found_headless.split("/")
+                        browser_name = headless_info[0]
+                        browser_version = headless_info[1]
+
+                    else:
+                        # need to decode utf-8 because the agent
+                        # parser requires a str input
+                        parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
+                        browser = parsed_ua.get("browser", None)
+                        # the UA parser was able to
+                        # successfully extract a browser
+                        if browser is not None:
+                            browser_name = parsed_ua["browser"].get("name", None)
+                            browser_version = \
+                                parsed_ua["browser"].get("version", None)
+
+                # grab the ja3 associated with the socket
+                ja3_digest = sock_to_ja3[s]
+                browser_info = [ja3_digest, browser_name, \
+                        browser_version, \
+                        ua_str.decode("utf-8")]
+                _LOGGER.info(browser_info)
+
+                # adds to the dynamo db instance
+                _LOGGER.info("Writing Browser info to Database")
+                # browser info is everything but the JA3 hash
+                # above that is logged
+                browser_db_info = browser_info[1:]
+
+                # makes an external call to add the JA3 to the
+                # table with the appropriate browser information
+                _DYNAMO_ACCESS.add_to_table(ja3_digest, \
+                        VALUE_NAME, browser_db_info)
+
+                # real quick edge case if we can't parse the UA
+                # string properly, it won't crash the server
+                b_name = b""
+                b_version = b""
+
+                if browser_name is not None:
+                    b_name = browser_name.encode("utf-8")
+                if browser_version is not None:
+                    b_version = browser_version.encode("utf-8")
+
+                reply = b"HTTP/1.1 200 OK\n" \
+                        +b"Content-Type: text/html\n" \
+                        +b"\n" \
+                        +b"<html><h1>%b</h1><h1>%b</h1><h1>%b</h1></html>" % \
+                        (ja3_digest.encode("utf-8"), b_name, b_version)
+
+                # add the message reply to the queue
+                message_queues[s].put(reply)
+                # tell the poller we ready to send it
+                poller.modify(s, READ_WRITE)
+
+                return True
+
+        except (OSError, NameError)  as err:
+            # this needs to be warning because these errors are
+            # always expected to happen
+            # don't want this printing out every time
+            _LOGGER.warning(err)
+            return False
+            # continue
+
+    else:
+        return False
+
+    _LOGGER.debug(pformat(ja3_record))
+
+
+def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
+    try:
+        # peek and get the client HELLO for the TLS handshake
+        _LOGGER.info(type(sock))
+        if isinstance(sock, ssl.SSLSocket):
+            return False
+        else:
+            client_hello = sock.recv(2048, socket.MSG_PEEK)
+
+        addr = sock.getpeername()
+
+        # we got data from it and it didn't hangup
+        if client_hello:
+            ja3_record = ja3.process_ssl(client_hello)
+            # handles if the client_hello is not TLS handshake or just plain HTTP
+            if ja3_record is not None:
+                ja3_digest = ja3_record.get("ja3_digest", None)
+
+                # gets rid of the non-ssl socket
+                del fd_to_socket[sock.fileno()]
+                poller.unregister(sock)
+                # need to set to blocking for a hot sec so it can complete the TLS handshake
+                sock.setblocking(1)
+                # complete the TLS handshake by wrapping the
+                # socket in the ssl module
+                ssock = ssl.wrap_socket(sock, certfile=CERTFILE, \
+                        keyfile=KEYFILE, server_side=True, \
+                        ssl_version=ssl.PROTOCOL_TLSv1_2)
+
+                ssock.setblocking(0)
+
+
+                # add the ssl socket for later use
+                fd_to_socket[ssock.fileno()] = ssock
+                # add the ja3 digest to the socket
+                sock_to_ja3[ssock] = ja3_digest
+
+                # it's a new ssl socket client, so register the poller to
+                # look out for it
+                poller.register(ssock, READ_ONLY)
+                message_queues[ssock] = queue.Queue()
+
+                _LOGGER.info("New TLS Connection Established: %s", addr)
+                _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
+
+                # successful TLS handshake
+                return True
+
+            else:
+                # _LOGGER.info("Closing connection...Invalid HTTPS "
+                #              "connection from: %s", addr)
+
+                _LOGGER.debug("Did not receive TLS handshake from %s", addr)
+
+                # no message queue yet or ja3 digest
+                # cleanup_connection(sock, poller)
+                return False
+
+        else:
+            _LOGGER.info("Client %s Hung Up before initiating TLS Handshake", addr)
+            return None
+
+    except (ssl.SSLError, BlockingIOError) as err:
+        _LOGGER.warning(err)
+
+
+def cleanup_connection(sock, poller, message_queues=None, sock_to_ja3=None):
+    poller.unregister(sock)
+    sock.shutdown(socket.SHUT_RDWR)
+    # gracefully shutdown to eliminate RST packets
+    time.sleep(1)
+    sock.close()
+
+    if message_queues is not None:
+        del message_queues[sock]
+    if sock_to_ja3 is not None:
+        del sock_to_ja3[sock]
+
+
 def main():
     """Main method that runs and handles the HTTPs server concurrently
 
@@ -220,15 +409,11 @@ def main():
     init_logger(args.debug)
     init_dynamo_access()
 
-    READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
-    READ_WRITE = READ_ONLY | select.POLLOUT
-    TIMEOUT = 1000
-
-
     _LOGGER.debug("Initializing Socket")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setblocking(0)
     sock.bind((HOST, PORT))
     sock.listen(5)
 
@@ -252,153 +437,22 @@ def main():
             if flag & (select.POLLIN | select.POLLPRI):
                 # server socket gets a new connection
                 if s is sock:
-                    conn, addr = sock.accept()
-                    _LOGGER.debug("New TCP Connection Created: %s", addr)
-
-                    try:
-                        # peek and get the client HELLO for the TLS handshake
-                        client_hello = conn.recv(2048, socket.MSG_PEEK)
-
-                        # we got data from it and it didn't hangup
-                        if client_hello:
-                            ja3_record = ja3.process_ssl(client_hello)
-                            # handles if the client_hello is not TLS handshake or just plain HTTP
-                            if ja3_record is not None:
-                                ja3_digest = ja3_record.get("ja3_digest", None)
-
-                                # complete the TLS handshake by wrapping the
-                                # socket in the ssl module
-                                ssock = ssl.wrap_socket(conn, certfile=CERTFILE, \
-                                        keyfile=KEYFILE, server_side=True, \
-                                        ssl_version=ssl.PROTOCOL_TLSv1_2)
-
-                                # add the socket for later use
-                                fd_to_socket[ssock.fileno()] = ssock
-                                # add the ja3 digest to the socket
-                                sock_to_ja3[ssock] = ja3_digest
-
-                                # it's a new client, so register the poller to
-                                # look out for it
-                                poller.register(ssock, READ_ONLY)
-                                message_queues[ssock] = queue.Queue()
-
-                                _LOGGER.info("New TLS Connection Established: %s", addr)
-                                _LOGGER.info("JA3: (%s,%s) :: %s", addr[0], addr[1], ja3_digest)
-
-                            else:
-                                _LOGGER.info("Closing connection...Invalid HTTPS "
-                                             "connection from: %s", addr)
-                                conn.shutdown(socket.SHUT_RDWR)
-                                # helps with some RST packets being sent and not
-                                # properly closing connections
-                                time.sleep(1)
-                                conn.close()
-                        else:
-                            _LOGGER.info("Client %s Hung Up before initiating TLS Handshake", addr)
-
-                    except ssl.SSLError as err:
-                        _LOGGER.debug(err)
+                    handle_new_conn(sock, fd_to_socket, message_queues, sock_to_ja3, poller)
 
                 # not init connection to the server
                 else:
-                    # hopefully get the GET request here for UA string processing
-                    init_request = s.recv(2048)
-
-                    # data exists from the previous read
-                    if init_request:
-                        try:
-                            _LOGGER.debug(init_request)
-                            # it's a GET request
-                            if b"GET" in init_request:
-                                ua_str = extract_ua_str(init_request)
-                                browser_name = "Unknown"
-                                browser_version = "Unknown"
-
-                                # it could extract the UA section of the header
-                                if ua_str != b"Unknown":
-                                    # real quick check for any headless browser(s)
-                                    found_headless = \
-                                        check_for_headless_browsers(ua_str.decode("utf-8"))
-
-                                    # it got a hit from a headless browser
-                                    if found_headless is not None:
-                                        _LOGGER.debug("Detected headless")
-                                        # splits and extracts name/version
-                                        headless_info = found_headless.split("/")
-                                        browser_name = headless_info[0]
-                                        browser_version = headless_info[1]
-
-                                    else:
-                                        # need to decode utf-8 because the agent
-                                        # parser requires a str input
-                                        parsed_ua = httpagentparser.detect(ua_str.decode("utf-8"))
-                                        browser = parsed_ua.get("browser", None)
-                                        # the UA parser was able to
-                                        # successfully extract a browser
-                                        if browser is not None:
-                                            browser_name = parsed_ua["browser"].get("name", None)
-                                            browser_version = \
-                                                parsed_ua["browser"].get("version", None)
-
-                                # grab the ja3 associated with the socket
-                                ja3_digest = sock_to_ja3[s]
-                                browser_info = [ja3_digest, browser_name, \
-                                        browser_version, \
-                                        ua_str.decode("utf-8")]
-                                _LOGGER.info(browser_info)
-
-                                # adds to the dynamo db instance
-                                _LOGGER.info("Writing Browser info to Database")
-                                # browser info is everything but the JA3 hash
-                                # above that is logged
-                                browser_db_info = browser_info[1:]
-
-                                # makes an external call to add the JA3 to the
-                                # table with the appropriate browser information
-                                _DYNAMO_ACCESS.add_to_table(ja3_digest, \
-                                        VALUE_NAME, browser_db_info)
-
-                                # real quick edge case if we can't parse the UA
-                                # string properly, it won't crash the server
-                                b_name = b""
-                                b_version = b""
-
-                                if browser_name is not None:
-                                    b_name = browser_name.encode("utf-8")
-                                if browser_version is not None:
-                                    b_version = browser_version.encode("utf-8")
-
-                                reply = b"HTTP/1.1 200 OK\n" \
-                                        +b"Content-Type: text/html\n" \
-                                        +b"\n" \
-                                        +b"<html><h1>%b</h1><h1>%b</h1><h1>%b</h1></html>" % \
-                                        (ja3_digest.encode("utf-8"), b_name, b_version)
-                                # add the message reply to the queue
-                                message_queues[s].put(reply)
-                                # tell the poller we ready to send it
-                                poller.modify(s, READ_WRITE)
-
-                        except (OSError, NameError)  as err:
-                            # this needs to be debug because these errors are
-                            # always expected to happen
-                            # don't want this printing out every time
-                            _LOGGER.debug(err)
-                            continue
-
-                    else:
-                        poller.unregister(s)
-                        s.shutdown(socket.SHUT_RDWR)
-                        # gracefully shutdown to eliminate RST packets
-                        time.sleep(1)
-                        s.close()
-
-                        del message_queues[s]
-                        del sock_to_ja3[s]
-
-                    _LOGGER.debug(pformat(ja3_record))
+                    # checks if this is the second event fired and need to grab the TLS handshake
+                    handshake = tls_handshake(s, message_queues, fd_to_socket, sock_to_ja3, poller)
+                    # checks either error or non tls handshake
+                    if handshake is not None and not handshake:
+                        # check if there is an HTTP GET request
+                        if not retrieve_http_req(s, message_queues, sock_to_ja3, poller):
+                            # we didn't get a GET, so close it
+                            cleanup_connection(s, poller, message_queues, sock_to_ja3)
 
             # client hangs up
             elif flag & select.POLLHUP:
+                cleanup_connection(s, poller)
                 # close everything
                 poller.unregister(s)
                 s.shutdown(socket.SHUT_RDWR)
@@ -418,28 +472,12 @@ def main():
                     s.send(next_msg)
                     # we do not keep any more connections after we use the client
                     # for the JA3 fingerprint
-                    poller.unregister(s)
-                    # close it because we got what we needed
-                    s.shutdown(socket.SHUT_RDWR)
-                    time.sleep(1)
-                    s.close()
-
-                    # get rid of all data associated with that socket since
-                    # we're done with it
-                    del message_queues[s]
-                    del sock_to_ja3[s]
+                    cleanup_connection(s, poller, message_queues, sock_to_ja3)
 
             # little error happened
             elif flag & select.POLLERR:
                 # close everything
-                poller.unregister(s)
-                s.shutdown(socket.SHUT_RDWR)
-                time.sleep(1)
-                s.close()
-
-                # error, so get rid of socket data
-                del message_queues[s]
-                del sock_to_ja3[s]
+                cleanup_connection(s, poller, message_queues, sock_to_ja3)
 
 
 if __name__ == "__main__":
