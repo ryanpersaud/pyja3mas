@@ -10,14 +10,12 @@ HTTPS server.
 import argparse
 import logging
 import logging.config
-from pprint import pformat
 import os
 import re
 import socket
 import ssl
 import sys
 import select
-import time
 
 import queue
 import httpagentparser
@@ -206,7 +204,23 @@ def init_dynamo_access():
     _LOGGER.info("Connected to Dynamo DB Table '%s'", DB_TABLE_NAME)
 
 
-def handle_new_conn(sock, fd_to_socket, message_queues, poller):
+def handle_new_conn(sock, fd_to_socket, poller):
+    """Handles a new connection to the server.
+
+    Accepts the socket sonnection and registers the socket with the poller
+    appropriately.
+
+    Arguments:
+        sock (:obj: `socket`) socket object associated with the server socket
+        fd_to_socket (:obj: `dict`) Dictionary mapping file descriptors to
+            socket objects for new connections.
+        poller (:obj: `select.poll`) polling object from the select module for
+            concurrent socket IO
+
+    Returns:
+        void
+    """
+
     conn, addr = sock.accept()
     conn.setblocking(0)
     fd_to_socket[conn.fileno()] = conn
@@ -214,19 +228,34 @@ def handle_new_conn(sock, fd_to_socket, message_queues, poller):
     _LOGGER.debug("New TCP Connection Created: %s", addr)
 
 
-def retrieve_http_req(s, message_queues, sock_to_ja3, poller):
+def retrieve_http_req(sock, message_queues, sock_to_ja3, poller):
+    """Attempts to process incoming bytes and get the HTTP GET request.
+
+    Reads input from the given socket and if it sees a GET request, it parses
+    the User-Agent string for browser metadata.
+
+    Arguments:
+        sock (:obj: `socket`) socket object to process any incoming bytes on
+        message_queues (:obj: `queue.queue`) standard queue for outgoing messages
+        sock_to_ja3 (:obj: `dict`) Dictionary mapping socket object to ja3 fingerprints
+        poller (:obj: `select.poll`) polling object from the select module for
+            concurrent socket IO.
+
+    Returns:
+        bool: True on successful GET request, False otherwise and on error
+    """
+
     # hopefully get the GET request here for UA string processing
     try:
-        init_request = s.recv(2048)
+        init_request = sock.recv(2048)
     except BlockingIOError as err:
-        _LOGGER.error("Nothing to read")
+        _LOGGER.warning("Nothing to read")
         return False
 
     except ConnectionResetError as err:
-        _LOGGER.error("Connection reset: %s", err)
+        _LOGGER.warning("Connection reset: %s", err)
         return False
 
-    # _LOGGER.error(init_request)
     # data exists from the previous read
     if init_request:
         try:
@@ -264,7 +293,7 @@ def retrieve_http_req(s, message_queues, sock_to_ja3, poller):
                                 parsed_ua["browser"].get("version", None)
 
                 # grab the ja3 associated with the socket
-                ja3_digest = sock_to_ja3[s]
+                ja3_digest = sock_to_ja3[sock]
                 browser_info = [ja3_digest, browser_name, \
                         browser_version, \
                         ua_str.decode("utf-8")]
@@ -298,9 +327,9 @@ def retrieve_http_req(s, message_queues, sock_to_ja3, poller):
                         (ja3_digest.encode("utf-8"), b_name, b_version)
 
                 # add the message reply to the queue
-                message_queues[s].put(reply)
+                message_queues[sock].put(reply)
                 # tell the poller we ready to send it
-                poller.modify(s, READ_WRITE)
+                poller.modify(sock, READ_WRITE)
 
                 return True
 
@@ -311,14 +340,26 @@ def retrieve_http_req(s, message_queues, sock_to_ja3, poller):
             _LOGGER.warning(err)
             return False
 
-    else:
-        _LOGGER.warning("nothing read")
-        return False
-
-    _LOGGER.debug(pformat(ja3_record))
+    _LOGGER.warning("Nothing Read")
+    return False
 
 
 def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
+    """Takes a given connection and completes the TLS handshake to obtain the
+    JA3 fingerprint.
+
+    Arguments:
+        sock (:obj: `socket`) current TCP connection with a client to complete
+            the TLS handshake with.
+        message_queues (:obj: `queue.queue`) standard queue for message IO for
+            the given socket
+        fd_to_socket (:obj: `dict`) Dictionary mapping file descriptor integers
+            to socket objects
+        sock_to_ja3 (:obj: `dict`) Dictionary mapping socket objects to ja3
+            fingerprints
+        poller (:obj: `select.poll`) poller object for concurrent IO on the socket
+    """
+
     try:
         # peek and get the client HELLO for the TLS handshake
         _LOGGER.info(type(sock))
@@ -352,14 +393,9 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
                 # socket in the ssl module
                 _LOGGER.debug("Attempting to wrap the socket with SSL")
 
-                try:
-                    ssock = ssl.wrap_socket(sock, certfile=CERTFILE, \
-                            keyfile=KEYFILE, server_side=True, \
-                            ssl_version=ssl.PROTOCOL_TLSv1_2)
-                except Exception as err:
-                    _LOGGER.error(err)
-                    _LOGGER.error("Something went wrong")
-                    return
+                ssock = ssl.wrap_socket(sock, certfile=CERTFILE, \
+                        keyfile=KEYFILE, server_side=True, \
+                        ssl_version=ssl.PROTOCOL_TLSv1_2)
 
 
                 _LOGGER.info("got peername")
@@ -384,9 +420,6 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
                 return True
 
             else:
-                # _LOGGER.info("Closing connection...Invalid HTTPS "
-                #              "connection from: %s", addr)
-
                 _LOGGER.debug("Did not receive TLS handshake from %s", addr)
 
                 # no message queue yet or ja3 digest
@@ -404,17 +437,27 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
 
     except ssl.SSLError as err:
         _LOGGER.warning("SSL Err: %s", err)
+        return None
 
     except OSError as err:
-        _LOGGER.info("HELLO")
-        time.sleep(3)
         _LOGGER.warning(err)
-        _LOGGER.warning(sock.fileno())
         return None
 
 
 
 def cleanup_connection(sock, poller, message_queues=None, sock_to_ja3=None):
+    """Cleans up the connection for the given TCP socket.
+
+    Arguments:
+        sock (:obj: `socket`) current connected socket to close the connection
+            with
+        poller (:obj: `select.poll`) poller for concurrent IO operations
+        message_queues (:obj: `queue.queue`) Optionally provided queue for the
+            socket's outgoing messages
+        sock_to_ja3 (:obj: `dict`) Optional dictionary that maps socket objects
+            to its ja3 fingerprint
+    """
+
     try:
         _LOGGER.info("Closing connection to %s", sock.getpeername())
     except OSError as err:
@@ -450,19 +493,19 @@ def main():
 
     _LOGGER.debug("Initializing Socket")
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setblocking(0)
-    sock.bind((HOST, PORT))
-    sock.listen(11)
+    serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+    serv .setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    serv.setblocking(0)
+    serv.bind((HOST, PORT))
+    serv.listen(11)
 
     # queue for sending messages back to the clients
     message_queues = {}
 
     poller = select.poll()
-    poller.register(sock, READ_ONLY)
+    poller.register(serv, READ_ONLY)
 
-    fd_to_socket = {sock.fileno(): sock,}
+    fd_to_socket = {serv.fileno(): serv,}
     sock_to_ja3 = {}
 
     _LOGGER.info("Launching Server on https://ja3.appianis.com:%d", PORT)
@@ -470,50 +513,50 @@ def main():
     while True:
         events = poller.poll(TIMEOUT)
 
-        for fd, flag in events:
-            s = fd_to_socket[fd]
+        for file_desc, flag in events:
+            sock = fd_to_socket[file_desc]
 
             if flag & (select.POLLIN | select.POLLPRI):
                 # server socket gets a new connection
-                if s is sock:
-                    handle_new_conn(s, fd_to_socket, message_queues, poller)
+                if sock is serv:
+                    handle_new_conn(sock, fd_to_socket, poller)
 
                 # not init connection to the server
                 else:
                     # checks if this is the second event fired and need to grab the TLS handshake
-                    handshake = tls_handshake(s, message_queues, fd_to_socket, sock_to_ja3, poller)
+                    handshake = tls_handshake(sock, message_queues, \
+                            fd_to_socket, sock_to_ja3, poller)
                     # checks either error or non tls handshake
                     if handshake is not None and not handshake:
                         # check if there is an HTTP GET request because
                         # tls_handshake returned False
-                        if not retrieve_http_req(s, message_queues, sock_to_ja3, poller):
+                        if not retrieve_http_req(sock, message_queues, sock_to_ja3, poller):
                             # we didn't get a GET, so close it
-                            _LOGGER.error(type(s))
-                            cleanup_connection(s, poller, message_queues, sock_to_ja3)
+                            cleanup_connection(sock, poller, message_queues, sock_to_ja3)
 
             # client hangs up
             elif flag & select.POLLHUP:
-                cleanup_connection(s, poller)
+                cleanup_connection(sock, poller)
 
             # we have output to send to the client
             elif flag & select.POLLOUT:
                 try:
-                    next_msg = message_queues[s].get_nowait()
+                    next_msg = message_queues[sock].get_nowait()
                 # we've got nothing to send it
                 except queue.Empty:
-                    poller.modify(s, READ_ONLY)
+                    poller.modify(sock, READ_ONLY)
 
                 else:
                     # respond with the message
-                    s.send(next_msg)
+                    sock.send(next_msg)
                     # we do not keep any more connections after we use the client
                     # for the JA3 fingerprint
-                    cleanup_connection(s, poller, message_queues, sock_to_ja3)
+                    cleanup_connection(sock, poller, message_queues, sock_to_ja3)
 
             # little error happened
             elif flag & select.POLLERR:
                 # close everything
-                cleanup_connection(s, poller, message_queues, sock_to_ja3)
+                cleanup_connection(sock, poller, message_queues, sock_to_ja3)
 
 
 if __name__ == "__main__":
