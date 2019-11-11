@@ -362,7 +362,6 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
 
     try:
         # peek and get the client HELLO for the TLS handshake
-        _LOGGER.info(type(sock))
         # we have an ssl socket, then we've already completed the TLS handshake
         if isinstance(sock, ssl.SSLSocket):
             _LOGGER.info("returning the sssl socket for falso")
@@ -371,7 +370,6 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
         # otherwise, we peek at the TLS handshake
         _LOGGER.info("receiving client hello")
         client_hello = sock.recv(2048, socket.MSG_PEEK)
-        _LOGGER.info("HELLO: %s", client_hello)
 
         addr = sock.getpeername()
 
@@ -398,7 +396,7 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
                         ssl_version=ssl.PROTOCOL_TLSv1_2)
 
 
-                _LOGGER.info("got peername")
+                _LOGGER.debug("got peername")
                 # set the ssl socket to be nonblocking
                 ssock.setblocking(0)
                 _LOGGER.debug("created TLS connection, adding SSL socket to poller")
@@ -419,17 +417,17 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
                 # successful TLS handshake
                 return True
 
-            else:
-                _LOGGER.debug("Did not receive TLS handshake from %s", addr)
+            # equivalent of an else block
+            _LOGGER.debug("Did not receive TLS handshake from %s", addr)
 
-                # no message queue yet or ja3 digest
-                return False
+            # no message queue yet or ja3 digest
+            return False
 
-        else:
-            _LOGGER.info("Client %s Hung Up before initiating TLS Handshake", addr)
-            _LOGGER.debug(sock)
-            cleanup_connection(sock, poller)
-            return None
+        # equivalent of an else block
+        _LOGGER.info("Client %s Hung Up before initiating TLS Handshake", addr)
+        _LOGGER.debug(sock)
+        cleanup_connection(sock, poller)
+        return None
 
     except BlockingIOError as err:
         _LOGGER.warning("Blocking IO Err: %s", err)
