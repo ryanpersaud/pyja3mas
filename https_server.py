@@ -72,14 +72,16 @@ READ_WRITE = READ_ONLY | select.POLLOUT
 TIMEOUT = 1000
 
 def check_for_headless_browsers(request):
-    """Given a UA string, determines if the request came from cURL
+    """Given a UA string, determines if the request came from a headless
+    browser.
 
     Args:
-        request (:obj: `str`) UA string or full HTTP request to parse for cURL
+        request (:obj: `str`) UA string or full HTTP request to parse for
+            headless browsers 
 
     Returns:
-        (:obj: `re`) regex object that is parseable if a match for cURL is
-            found, None otherwise
+        (:obj: `re`) regex object that is parseable if a match for a headless
+            browser is found, None otherwise
     """
 
     # performs the regex matching
@@ -118,7 +120,6 @@ def extract_ua_str(request):
     """
 
     _LOGGER.debug("Attempting to Extract User-Agent String")
-    # _LOGGER.info(request)
 
     ua_idx = request.find(b"User-Agent")
     if ua_idx >= 0:
@@ -127,7 +128,7 @@ def extract_ua_str(request):
         # returns the UA string if found
         return new_substr[:end_ua_idx]
 
-    # returns empty if no UA string
+    # returns unknown if no UA string
     return b"Unknown"
 
 
@@ -364,7 +365,7 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
         # peek and get the client HELLO for the TLS handshake
         # we have an ssl socket, then we've already completed the TLS handshake
         if isinstance(sock, ssl.SSLSocket):
-            _LOGGER.info("returning the sssl socket for falso")
+            _LOGGER.info("returning the ssl socket for falso")
             return False
 
         # otherwise, we peek at the TLS handshake
@@ -492,10 +493,10 @@ def main():
     _LOGGER.debug("Initializing Socket")
 
     serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    serv .setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     serv.setblocking(0)
     serv.bind((HOST, PORT))
-    serv.listen(11)
+    serv.listen(10)
 
     # queue for sending messages back to the clients
     message_queues = {}
@@ -506,7 +507,7 @@ def main():
     fd_to_socket = {serv.fileno(): serv,}
     sock_to_ja3 = {}
 
-    _LOGGER.info("Launching Server on https://ja3.appianis.com:%d", PORT)
+    _LOGGER.info("Launching Server on https://ja3.appianis.com:443")
 
     while True:
         events = poller.poll(TIMEOUT)
