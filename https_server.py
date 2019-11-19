@@ -77,7 +77,7 @@ def check_for_headless_browsers(request):
 
     Args:
         request (:obj: `str`) UA string or full HTTP request to parse for
-            headless browsers 
+            headless browsers
 
     Returns:
         (:obj: `re`) regex object that is parseable if a match for a headless
@@ -435,11 +435,15 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
         return False
 
     except ssl.SSLError as err:
+        # error typically associated with browsers complaining about a
+        # self-signed cert
         _LOGGER.warning("SSL Err: %s", err)
+        # cleanup_connection(sock, poller)
         return None
 
     except OSError as err:
         _LOGGER.warning(err)
+        cleanup_connection(sock, poller)
         return None
 
 
@@ -547,10 +551,15 @@ def main():
 
                 else:
                     # respond with the message
-                    sock.send(next_msg)
+                    try:
+                        sock.send(next_msg)
+                    except OSError as _:
+                        _LOGGER.error("Client hung up before we could send back"
+                                      "HTTP response")
                     # we do not keep any more connections after we use the client
                     # for the JA3 fingerprint
-                    cleanup_connection(sock, poller, message_queues, sock_to_ja3)
+                    finally:
+                        cleanup_connection(sock, poller, message_queues, sock_to_ja3)
 
             # little error happened
             elif flag & select.POLLERR:
