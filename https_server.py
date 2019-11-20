@@ -61,6 +61,9 @@ GO_RE = r"([gG]o\D+\/(\d\.)?(\d\.)?(\d+))"
 
 LOG_FNAME = "server.log"
 LOG_DIR = "logs"
+# 60 MB rollover byte length
+ROLLOVER_BYTES = 64*1024*1024
+
 
 EXIT_SUCC = 0
 PARAM_ERROR = 1
@@ -165,6 +168,7 @@ def init_logger(debug_on):
     # prod-level stdout
     log_conf.LOGGING_CONFIG["handlers"]["consoleHandler"]["formatter"] = "fileFormatter"
     log_conf.LOGGING_CONFIG["handlers"]["fileHandler"]["filename"] = "%s/%s" % (LOG_DIR, LOG_FNAME)
+    log_conf.LOGGING_CONFIG["handlers"]["fileHandler"]["maxBytes"] = ROLLOVER_BYTES
 
     if not os.path.isdir(LOG_DIR):
         os.mkdir(LOG_DIR)
