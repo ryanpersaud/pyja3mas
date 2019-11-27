@@ -124,7 +124,7 @@ def extract_ua_str(request):
 
     _LOGGER.debug("Attempting to Extract User-Agent String")
 
-    ua_idx = request.find(b"User-Agent")
+    ua_idx = request.lower().find(b"user-agent")
     if ua_idx >= 0:
         new_substr = request[ua_idx + len("User-Agent: "):]
         end_ua_idx = new_substr.find(b"\r\n")
