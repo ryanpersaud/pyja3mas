@@ -325,9 +325,9 @@ def retrieve_http_req(sock, message_queues, sock_to_ja3, poller):
                 if browser_version is not None:
                     b_version = browser_version.encode("utf-8")
 
-                reply = b"HTTP/1.1 200 OK\n" \
-                        +b"Content-Type: text/html\n" \
-                        +b"\n" \
+                reply = b"HTTP/1.1 200 OK\r\n" \
+                        +b"Content-Type: text/html\r\n" \
+                        +b"\r\n" \
                         +b"<html><h1>%b</h1><h1>%b</h1><h1>%b</h1></html>" % \
                         (ja3_digest.encode("utf-8"), b_name, b_version)
 
