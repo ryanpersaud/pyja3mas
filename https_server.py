@@ -471,6 +471,10 @@ def cleanup_connection(sock, poller, message_queues=None, sock_to_ja3=None):
         _LOGGER.error(err)
         _LOGGER.info("Closing connection to %s", sock)
 
+        if sock.fileno() == -1:
+            _LOGGER.warning("Socket prematurely closed on client end: fd == -1")
+            return
+
     poller.unregister(sock)
     # gracefully shutdown to eliminate RST packets
     sock.close()
