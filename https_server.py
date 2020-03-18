@@ -22,18 +22,7 @@ import httpagentparser
 
 import log_conf
 import ja3
-import dynamodb_access as ddb
 
-_DYNAMO_ACCESS = None
-"""DynamoDBAccess Obj: Global private module variable to store the connection
-object to the DynamoDB table in AWS """
-
-DB_TABLE_NAME = "JA3Fingerprints"
-"""str Obj: table name in AWS to connect to"""
-DB_PRIM_KEY_NAME = "ja3"
-"""str Obj: primary key to use for accessing and updating the DynamoDB table"""
-VALUE_NAME = "browserinfo"
-"""str Obj: value name of the KV pair in the DynamoDB table"""
 
 CERTFILE = "./certs/fullchain.pem"
 """str Obj: file path to the certificate PEM file"""
@@ -183,32 +172,6 @@ def init_logger(debug_on):
     _LOGGER.debug("Debug On")
 
 
-def init_dynamo_access():
-    """Initializes the DynamoDB private module variable to access the AWS
-    DynamoDB instance that will store the JA3 fingerprints.
-
-    Args:
-        void
-
-    Returns:
-        void
-    """
-
-    global _DYNAMO_ACCESS
-
-    try:
-        # create dyanmo object
-        _DYNAMO_ACCESS = ddb.DynamoDBAccess(DB_TABLE_NAME, DB_PRIM_KEY_NAME)
-    except (ddb.TableDoesNotExistException, ddb.PrimKeyException) as err:
-        # any exception means it could not successfully connect ot the dynamo
-        # table
-        _LOGGER.critical(err)
-        _LOGGER.critical("Cannot connect to Dynamo Database...Exiting")
-        sys.exit(CONFIG_ERROR)
-
-    _LOGGER.info("Connected to Dynamo DB Table '%s'", DB_TABLE_NAME)
-
-
 def handle_new_conn(sock, fd_to_socket, poller):
     """Handles a new connection to the server.
 
@@ -302,18 +265,8 @@ def retrieve_http_req(sock, message_queues, sock_to_ja3, poller):
                 browser_info = [ja3_digest, browser_name, \
                         browser_version, \
                         ua_str.decode("utf-8")]
+
                 _LOGGER.info(browser_info)
-
-                # adds to the dynamo db instance
-                _LOGGER.info("Writing Browser info to Database")
-                # browser info is everything but the JA3 hash
-                # above that is logged
-                browser_db_info = browser_info[1:]
-
-                # makes an external call to add the JA3 to the
-                # table with the appropriate browser information
-                _DYNAMO_ACCESS.add_to_table(ja3_digest, \
-                        VALUE_NAME, browser_db_info)
 
                 # real quick edge case if we can't parse the UA
                 # string properly, it won't crash the server
@@ -369,7 +322,7 @@ def tls_handshake(sock, message_queues, fd_to_socket, sock_to_ja3, poller):
         # peek and get the client HELLO for the TLS handshake
         # we have an ssl socket, then we've already completed the TLS handshake
         if isinstance(sock, ssl.SSLSocket):
-            _LOGGER.info("returning the ssl socket for falso")
+            _LOGGER.info("returning the ssl socket for false")
             return False
 
         # otherwise, we peek at the TLS handshake
@@ -500,7 +453,6 @@ def main():
     args = parser.parse_args()
 
     init_logger(args.debug)
-    init_dynamo_access()
 
     _LOGGER.debug("Initializing Socket")
 
@@ -519,7 +471,7 @@ def main():
     fd_to_socket = {serv.fileno(): serv,}
     sock_to_ja3 = {}
 
-    _LOGGER.info("Launching Server on https://ja3.appianis.com:443")
+    _LOGGER.info("Launching Server on https://%s:%d", ("localhost" if HOST == "" else HOST), PORT)
 
     while True:
         events = poller.poll(TIMEOUT)
