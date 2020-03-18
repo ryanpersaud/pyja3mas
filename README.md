@@ -35,7 +35,7 @@ pip3 install -r requirements.txt
 ```
 Next, you will need to generate certificates for the https server to use:
 ```
-openssl req -newkey rsa:2048 -nodes -keyout privkey.pem -x509 -days 365 -out fullchain.pem
+openssl req -newkey rsa:4096 -nodes -keyout privkey.pem -x509 -days 365 -out fullchain.pem
 ```
 
 Place these two `.pem` files in a directory called `certs/` for seamless use
