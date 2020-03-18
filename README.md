@@ -24,27 +24,45 @@ place.  After this, the web server returns the JA3 fingerprint, as well as the
 browser client/version that it parses from the User-Agent string along with the
 GET request.
 
-When the server gets a new client or JA3, it adds it to a DynamoDB instance on
-AWS.  This database is a master list of known JA3 hashes.
-
-### Future Development
+When the server gets a new client or JA3, it logs it to STDOUT, as well as the log file.
 
 
 ### Running the Server
-On the EC2 instance, run
+Running the server is very easy and straightforward.  To install all of the requirements, run
+
 ```
-docker run -it -u root -p 443:4443 -v /etc/letsencrypt/live/ja3.appianis.com/:/home/appuser/certs/ -v /etc/letsencrypt/archive/ja3.appianis.com:/home/archive/ja3.appianis.com https
+pip3 install -r requirements.txt
+```
+Next, you will need to generate certificates for the https server to use:
+```
+openssl req -newkey rsa:2048 -nodes -keyout privkey.pem -x509 -days 365 -out fullchain.pem
 ```
 
+Place these two `.pem` files in a directory called `certs/` for seamless use
+with the https server.  By default, the server will search for these two files
+in `certs/`.  This can be changed directly in the code by editing `CERTFILE`
+and `KEYFILE` global variables.
 
-This will start up the docker container to listen for HTTPS connections on its
-internal port 4443, and the host will map its port 443 to forward to the
-container's port 4443.  You can test that the docker container is running
-successfully by going to `https://ja3.appianis.com` while on VPN or the wired
-VLAN.
+```
+$ python3 https_server.py -h
 
+usage: https_server.py [-h] [--debug]
 
-By visiting `https://ja3.appianis.com`, you should see a webpage with your
+optional arguments:
+  -h, --help  show this help message and exit
+  --debug     Turn on debug logging
+```
+
+To actually run the server:
+```
+python3 https_server.py
+```
+This will start the server on `localhost:4443` by default.  You can visit
+`https://localhost:4443` on your browser.  To change the host/port, go into the
+code and edit the `HOST` and `PORT` global variables.
+
+By visiting the address, you should see a webpage with your
 browser's JA3 fingerprint, browser name, and browser version.  It extracts all
 of this data, except for the JA3 fingerprint, from the User-Agent string your
 browser sends with the initial GET request.
+
