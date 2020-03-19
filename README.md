@@ -57,9 +57,11 @@ To actually run the server:
 ```
 python3 https_server.py
 ```
+
 This will start the server on `localhost:4443` by default.  You can visit
-`https://localhost:4443` on your browser.  To change the host/port, go into the
-code and edit the `HOST` and `PORT` global variables.
+`https://localhost:4443` on your browser.  Make sure you inlcude `https` in
+front of the domain, or the browser will not connect properly. To change the
+host/port, go into the code and edit the `HOST` and `PORT` global variables.
 
 By visiting the address, you should see a webpage with your
 browser's JA3 fingerprint, browser name, and browser version.  It extracts all
