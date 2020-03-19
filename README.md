@@ -1,4 +1,4 @@
-# JA3 Fingerprinting Generator
+# PyJA3mas
 
 ### Background Information
 
