@@ -8,8 +8,8 @@ and the [JA3](https://github.com/salesforce/ja3) fingerprinting algorithm is
 meant to uniquely identify certain clients.  With this fingerprint, we can
 identify specific clients on the network from a single network connection.  We
 are able to identify everyday applications, such as Google Chrome or Firefox,
-as well as unique or potentially malicious clients, such as custom malware
-propagating through the network.  This lightweight server makes it easy to
+as well as unique or potentially malicious clients, such as custom malware that
+is propagating through the network.  This lightweight server makes it easy to
 identify these applications.
 
 
