@@ -59,7 +59,7 @@ python3 https_server.py
 ```
 
 This will start the server on `localhost:4443` by default.  You can visit
-`https://localhost:4443` on your browser.  Make sure you inlcude `https` in
+`https://localhost:4443` on your browser.  Make sure you include `https` in
 front of the domain, or the browser will not connect properly. To change the
 host/port, go into the code and edit the `HOST` and `PORT` global variables.
 
@@ -68,3 +68,13 @@ browser's JA3 fingerprint, browser name, and browser version.  It extracts all
 of this data, except for the JA3 fingerprint, from the User-Agent string your
 browser sends with the initial GET request.
 
+
+### Docker
+To run pyja3mas as a Docker container, first build the Docker image with:
+`docker build -t pyja3mas .`
+
+Then run the container with:
+`docker run -p 127.0.0.1:443:4443 pyja3mas`
+
+This will listen on port 443 of your loopback adapter for connections and
+forward them to the running pyja3mas script inside the container.
