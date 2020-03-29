@@ -16,8 +16,6 @@ RUN openssl req -newkey rsa:4096 -nodes -keyout certs/privkey.pem -x509 -days 36
 
 RUN chown -R ja3user:ja3user certs logs
 
-WORKDIR /opt/pyja3mas
-
 USER ja3user
 
 CMD python3 https_server.py
